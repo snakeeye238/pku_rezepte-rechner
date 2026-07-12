@@ -1,0 +1,12 @@
+{
+  "name": "pku-rezepte-rechner",
+  "version": "3.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check functions/api/foods.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.110.0"
+  }
+}
