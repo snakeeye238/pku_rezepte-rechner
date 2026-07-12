@@ -1,0 +1,92 @@
+name: Add special amount to exports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-special-amount-export.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch DOCX and PDF export
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('index.html')
+          source = path.read_text(encoding='utf-8')
+
+          old_docx = """                        buildMetricCardsTable(docxApi, totals, state.portions)
+"""
+          new_docx = """                        buildMetricCardsTable(docxApi, totals, state.portions),
+                        sectionHeading('Spezielle Menge'),
+                        infoParagraph(`Gewählte Menge: ${formatExportWeight(state.specialAmount)}`),
+                        buildMetricCardsTable(docxApi, totals, totals.weight > 0 ? totals.weight / state.specialAmount : 1)
+"""
+
+          old_pdf_cards = """            const portionMetricCards = getExportMetricCards(totals, state.portions);
+"""
+          new_pdf_cards = """            const portionMetricCards = getExportMetricCards(totals, state.portions);
+            const specialMetricCards = getExportMetricCards(totals, totals.weight > 0 ? totals.weight / state.specialAmount : 1);
+"""
+
+          old_pdf_end = """            y = addSectionTitle('Portionen', y);
+            y = addInfoLine(`Anzahl Portionen: ${state.portions}   |   Gewicht pro Portion: ${formatExportWeight(totals.weight / state.portions)}`, y + 2);
+            drawPdfMetricCards(doc, portionMetricCards, y + 1);
+
+            return doc.output('blob');
+"""
+          new_pdf_end = """            y = addSectionTitle('Portionen', y);
+            y = addInfoLine(`Anzahl Portionen: ${state.portions}   |   Gewicht pro Portion: ${formatExportWeight(totals.weight / state.portions)}`, y + 2);
+            y = drawPdfMetricCards(doc, portionMetricCards, y + 1) + exportVisualConfig.pdf.sectionGap;
+
+            y = addSectionTitle('Spezielle Menge', y);
+            y = addInfoLine(`Gewählte Menge: ${formatExportWeight(state.specialAmount)}`, y + 2);
+            drawPdfMetricCards(doc, specialMetricCards, y + 1);
+
+            return doc.output('blob');
+"""
+
+          replacements = [
+              (old_docx, new_docx, 'DOCX export block'),
+              (old_pdf_cards, new_pdf_cards, 'PDF metric setup'),
+              (old_pdf_end, new_pdf_end, 'PDF export block'),
+          ]
+
+          for old, new, label in replacements:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              source = source.replace(old, new, 1)
+
+          path.write_text(source, encoding='utf-8')
+
+      - name: Verify JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path('index.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.S)
+          inline = '\n'.join(s for s in scripts if s.strip())
+          Path('/tmp/index-inline.js').write_text(inline, encoding='utf-8')
+          PY
+          node --check /tmp/index-inline.js
+
+      - name: Commit result and remove one-time workflow
+        shell: bash
+        run: |
+          rm .github/workflows/one-time-special-amount-export.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html .github/workflows/one-time-special-amount-export.yml
+          git commit -m 'Export current special amount in DOCX and PDF'
+          git push
