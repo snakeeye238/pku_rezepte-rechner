@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check functions/api/foods.js"
+    "check": "node --check functions/api/foods.js",
+    "db:migrate": "wrangler d1 migrations apply pku-rezepte-rechner-db --remote",
+    "deploy": "wrangler pages deploy . --project-name pku-rezepte-rechner"
   },
   "devDependencies": {
     "wrangler": "^4.110.0"

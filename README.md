@@ -2,14 +2,11 @@
 
 Statischer PKU-Rezepte-Rechner für Cloudflare Pages. Eigene Lebensmittel werden über eine Pages Function in Cloudflare D1 gespeichert.
 
-## Cloudflare Pages einrichten
+## Cloudflare Pages
 
-1. Das Repository in Cloudflare Pages verbinden. Es ist kein Build-Befehl nötig; als Ausgabeverzeichnis `.` verwenden.
-2. Unter **Workers & Pages → pku_rezepte-rechner → Settings → Bindings** eine D1-Bindung hinzufügen.
-3. Die Binding-Variable muss exakt `DB` heißen. Eine neue oder vorhandene D1-Datenbank auswählen.
-4. Das Projekt erneut deployen.
+Das Git-verbundene Pages-Projekt heißt `pku-rezepte-rechner`. Die produktive D1-Datenbank `pku-rezepte-rechner-db` ist in `wrangler.jsonc` unter dem Binding `DB` konfiguriert.
 
-Die API legt die Tabelle beim ersten Aufruf selbst an. Alternativ kann das Schema aus `migrations/0001_custom_foods.sql` vorab auf die D1-Datenbank angewendet werden.
+Die Datenbankmigration kann mit `npm run db:migrate` angewendet werden. Ein manuelles Deployment ist mit `npm run deploy` möglich; Pushes auf `main` werden weiterhin über die bestehende Git-Anbindung veröffentlicht.
 
 ## Endpunkte
 

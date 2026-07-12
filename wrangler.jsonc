@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pku-rezepte-rechner",
+  "pages_build_output_dir": ".",
+  "compatibility_date": "2026-07-12",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pku-rezepte-rechner-db",
+      "database_id": "e83d0c9a-395e-4198-91b3-c3a62082b3b0",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
