@@ -1,0 +1,2352 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PKU Rezepte-Rechner</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%237c3aed'/%3E%3Cg transform='translate(121.6, 76.8) scale(0.7)'%3E%3Cpath fill='%23ffffff' d='M64 0C28.7 0 0 28.7 0 64V448c0 35.3 28.7 64 64 64H320c35.3 0 64-28.7 64-64V64c0-35.3-28.7-64-64-64H64zM96 64H288c17.7 0 32 14.3 32 32v96c0 17.7-14.3 32-32 32H96c-17.7 0-32-14.3-32-32V96c0-17.7 14.3-32 32-32zm32 224a32 32 0 1 1 -64 0 32 32 0 1 1 64 0zm0 96a32 32 0 1 1 -64 0 32 32 0 1 1 64 0zm96-96a32 32 0 1 1 -64 0 32 32 0 1 1 64 0zm0 96a32 32 0 1 1 -64 0 32 32 0 1 1 64 0zm96-96a32 32 0 1 1 -64 0 32 32 0 1 1 64 0zm0 96a32 32 0 1 1 -64 0 32 32 0 1 1 64 0z'/%3E%3C/g%3E%3C/svg%3E">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/docx@9.2.0/dist/index.umd.cjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#7c3aed', /* Kräftiges Violett */
+                        secondary: '#ec4899',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar für ein modernes Aussehen */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        #search-results, #mobile-search-results { overscroll-behavior: contain; }
+
+        /* --- LAYOUT STATE MANAGEMENT (DRY View Toggle) --- */
+        :root { --app-bg: #ede9fe; } /* Pastell-Violett */
+        body { transition: background-color 0.3s ease; background-color: var(--app-bg); }
+        #app-wrapper { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); width: 100%; min-height: 100vh; padding-bottom: 3rem; margin: 0 auto; }
+
+        /* Base Grid Classes */
+        .app-layout { display: grid; gap: 1.5rem; }
+        .results-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+        .db-grid { display: grid; gap: 0.75rem; }
+        .adaptive-text { display: inline; }
+
+        /* 1. DESKTOP VIEW (Forced) */
+        body.view-desktop { overflow-x: auto; }
+        body.view-desktop #app-wrapper { min-width: 1024px; }
+        body.view-desktop .app-layout { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2rem; }
+        body.view-desktop .col-left { grid-column: span 7 / span 7; }
+        body.view-desktop .col-right { grid-column: span 5 / span 5; }
+        body.view-desktop .db-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+
+        /* 2. MOBILE VIEW (Forced Single Column) */
+        body.view-mobile .app-layout { grid-template-columns: 1fr; }
+        body.view-mobile .col-left, body.view-mobile .col-right { grid-column: span 1 / span 1; }
+        body.view-mobile .db-grid { grid-template-columns: 1fr; }
+        body.view-mobile .adaptive-text { display: none !important; }
+        .ingredient-mobile-step { display: none; }
+        .ingredient-desktop-amount { display: block; }
+        .ingredient-add-row { display: flex; align-items: center; gap: 0.75rem; }
+        .search-inline-control { display: block; }
+        .search-mobile-trigger { display: none; }
+        body.view-mobile .ingredient-mobile-step { display: flex; }
+        body.view-mobile .ingredient-desktop-amount { display: none; }
+        body.view-mobile .ingredient-add-row { flex-direction: column; align-items: stretch; }
+        body.view-mobile .ingredient-add-label,
+        body.view-mobile .ingredient-add-controls { width: 100%; }
+        body.view-mobile .search-inline-control { display: none; }
+        body.view-mobile .search-mobile-trigger { display: flex; }
+
+        .db-category-section { width: 100%; }
+        .db-card-item {
+            --db-accent: #8b5cf6;
+            --db-accent-soft: rgba(139, 92, 246, 0.14);
+        }
+        .db-card-item:hover {
+            border-color: var(--db-accent) !important;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        }
+        .db-card-item:hover .db-card-name { color: var(--db-accent); }
+        .db-card-add-btn {
+            background: var(--db-accent-soft);
+            color: var(--db-accent);
+        }
+        .db-card-item:hover .db-card-add-btn,
+        .db-card-add-btn:hover {
+            background: var(--db-accent);
+            color: #ffffff;
+        }
+        .db-card-name {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.25;
+        }
+        body.view-mobile #db-modal-content .db-grid {
+            grid-template-columns: minmax(0, 90%);
+            justify-content: center;
+        }
+        body.view-mobile #db-modal-content .db-category-name {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.25;
+        }
+
+        #portions-input {
+            appearance: textfield;
+            -moz-appearance: textfield;
+            text-align: center;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        #portions-input::-webkit-outer-spin-button,
+        #portions-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        /* --- HEADER VIEW ADJUSTMENTS --- */
+        .header-container { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+        .header-icon-box { padding: 0.375rem; }
+        .header-icon { font-size: 1rem; }
+        .header-title { font-size: 1rem; }
+
+        body.view-desktop .header-container { padding-top: 1rem; padding-bottom: 1rem; }
+        body.view-desktop .header-icon-box { padding: 0.5rem; }
+        body.view-desktop .header-icon { font-size: 1.25rem; }
+        body.view-desktop .header-title { font-size: 1.25rem; }
+
+        .search-result-item.active,
+        .search-result-item:hover { background: #f3e8ff; }
+
+        .ingredient-amount-input {
+            appearance: textfield;
+            -moz-appearance: textfield;
+            text-align: center;
+            padding-left: 0;
+            padding-right: 0;
+            font-variant-numeric: tabular-nums;
+        }
+        .ingredient-amount-input::-webkit-outer-spin-button,
+        .ingredient-amount-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .quick-amount-btn.active {
+            background: #fee2e2;
+            border-color: #fca5a5;
+            color: #b91c1c;
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .header-actions { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+        .mockup-preview-mode .mockup-launch-only { display: none !important; }
+
+        .mockup-device-frame {
+                        --mockup-screen-inset-x: 2.678%;
+            --mockup-screen-inset-y: 1.127%;
+            position: relative;
+            height: min(84vh, 860px);
+            aspect-ratio: 77.6 / 162.8;
+            width: auto;
+            max-width: calc(100vw - 3rem);
+            border-radius: 2.5rem;
+            background: linear-gradient(145deg, #111827, #030712);
+            box-shadow:
+                0 32px 80px rgba(15, 23, 42, 0.32),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+        .mockup-device-frame::before {
+            content: '';
+            position: absolute;
+            inset: 0.3rem;
+            border-radius: 2.2rem;
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+                inset 0 0 0 0.45rem rgba(15, 23, 42, 0.96);
+            pointer-events: none;
+        }
+        .mockup-device-screen {
+            position: absolute;
+            inset: var(--mockup-screen-inset-y) var(--mockup-screen-inset-x);
+            border-radius: 2rem;
+            overflow: hidden;
+            background: #ffffff;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+        .mockup-device-camera {
+            position: absolute;
+            top: calc(var(--mockup-screen-inset-y) + 0.42rem);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0.7rem;
+            height: 0.7rem;
+            border-radius: 999px;
+            background: radial-gradient(circle at 35% 35%, #64748b 0%, #111827 60%, #020617 100%);
+            z-index: 2;
+            box-shadow:
+                0 0 0 0.08rem rgba(255, 255, 255, 0.12),
+                0 0 0 0.22rem rgba(2, 6, 23, 0.98);
+        }
+        #mockup-iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            display: block;
+            background: #ffffff;
+        }
+
+        @media (max-width: 640px) {
+            .header-actions .mockup-btn-label { display: none; }
+            .mockup-device-frame {
+                height: min(82vh, 760px);
+                max-width: calc(100vw - 1.5rem);
+                border-radius: 2.1rem;
+            }
+            .mockup-device-frame::before { border-radius: 1.85rem; }
+            .mockup-device-screen { border-radius: 1.65rem; }
+            .mockup-device-camera {
+                top: calc(var(--mockup-screen-inset-y) + 0.34rem);
+                width: 0.62rem;
+                height: 0.62rem;
+            }
+        }
+
+    </style>
+</head>
+<body class="text-gray-800 font-sans">
+
+    <div id="app-wrapper">
+        <!-- Header -->
+        <header class="bg-white shadow-sm sticky top-0 z-20">
+            <div class="max-w-6xl mx-auto px-3 sm:px-4 header-container flex flex-row items-center justify-between gap-2 transition-all duration-300">
+                <div class="flex items-center gap-2 sm:gap-3 truncate">
+                    <div class="bg-primary text-white rounded-lg shadow-sm shrink-0 header-icon-box transition-all duration-300">
+                        <i class="fa-solid fa-calculator header-icon transition-all duration-300"></i>
+                    </div>
+                    <div class="truncate">
+                        <h1 class="font-bold text-gray-900 leading-tight truncate header-title transition-all duration-300">PKU Rezepte-Rechner</h1>
+                    </div>
+                </div>
+
+                <!-- View Toggle Steuerung -->
+
+
+                <div class="header-actions shrink-0 mockup-launch-only">
+
+
+                    <button type="button" id="open-mockup-btn" onclick="openMockupModal()" class="inline-flex h-8 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20" title="Samsung Galaxy S25 Ultra Mockup">
+
+
+                        <i class="fa-solid fa-mobile-screen-button text-primary text-sm"></i>
+
+
+                        <span class="mockup-btn-label">Mockup</span>
+
+
+                    </button>
+
+
+                
+
+
+                    <div class="flex items-center shrink-0">
+
+
+                        <button onclick="toggleViewMode()" class="relative w-24 h-8 bg-gray-200 rounded-full p-1 transition-all focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-inner overflow-hidden" title="Ansicht wechseln">
+
+
+                            <span id="view-text-mobile" class="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-500 opacity-0 transition-opacity duration-300 uppercase tracking-wide pointer-events-none">Mobile</span>
+
+
+                            <span id="view-text-desktop" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-500 transition-opacity duration-300 uppercase tracking-wide pointer-events-none">Desktop</span>
+
+
+                            
+
+
+                            <div id="toggle-knob" class="relative w-6 h-6 bg-white rounded-full shadow-sm flex items-center justify-center transition-transform duration-300 ease-out z-10 translate-x-0">
+
+
+                                <i id="view-icon" class="fa-solid fa-desktop text-primary text-[11px]"></i>
+
+
+                            </div>
+
+
+                        </button>
+
+
+                    </div>
+
+
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-6xl mx-auto px-4 mt-6">
+            <div class="app-layout">
+                
+                <!-- Linke Spalte: Eingabe & Zutaten -->
+                <div class="col-left">
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 min-h-[500px] flex flex-col">
+                        
+                        <!-- Bereich: Zutat hinzufügen -->
+                        <div class="mb-6">
+                            <h2 class="text-lg font-semibold mb-4 text-gray-800"><i class="fa-solid fa-magnifying-glass mr-2 text-primary"></i>Zutaten</h2>
+                            <div class="ingredient-add-row">
+                                <div class="ingredient-add-label shrink-0 text-sm font-semibold text-gray-800 whitespace-nowrap">
+                                    <span>Hinzufügen</span>
+                                </div>
+                                <div class="ingredient-add-controls flex gap-2 flex-1">
+                                    <div class="search-inline-control relative flex-1">
+                                        <input type="text" id="search-input" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none text-gray-700 bg-gray-50 focus:bg-white" placeholder="Lebensmittel suchen...">
+                                        <i class="fa-solid fa-search absolute left-4 top-3.5 text-gray-400"></i>
+
+                                        <div id="search-results" role="listbox" class="absolute w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-lg max-h-60 overflow-y-auto hidden z-30 divide-y divide-gray-50"></div>
+                                    </div>
+                                    <button type="button" id="open-mobile-search-btn" onclick="openMobileSearchModal(this)" class="search-mobile-trigger flex-1 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-primary hover:border-primary/30 px-4 py-3 rounded-xl transition-all font-medium items-center justify-center gap-2 whitespace-nowrap shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                                        <i class="fa-solid fa-search text-primary"></i><span>Suchen</span>
+                                    </button>
+                                    <button onclick="toggleDatabaseModal()" class="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-primary hover:border-primary/30 px-4 py-3 rounded-xl transition-all font-medium flex items-center justify-center gap-2 whitespace-nowrap shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                                        <i class="fa-solid fa-database text-primary"></i><span class="adaptive-text">Datenbank</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="action-feedback" class="hidden mb-6 rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-gray-700"></div>
+
+                        <hr class="border-gray-100 mb-6">
+
+                        <!-- Bereich: Verwendete Zutaten -->
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-4 gap-3">
+                                <div class="flex items-center gap-2">
+                                    <h2 class="text-lg font-semibold text-gray-800"><i class="fa-solid fa-basket-shopping mr-2 text-gray-400"></i>Verwendete Zutaten</h2>
+                                    <span id="ingredient-count" class="bg-gray-100 text-gray-600 text-xs font-bold px-2.5 py-1 rounded-full">0</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button id="clear-all-btn" onclick="openClearAllConfirmModal(this)" class="hidden text-sm font-medium px-3.5 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:text-primary hover:border-primary/30 transition-all shadow-sm">Alles löschen</button>
+                                </div>
+                            </div>
+                            
+                            <div id="ingredients-list" class="space-y-3">
+                                <div id="empty-state" class="text-center py-12 text-gray-400">
+                                    <i class="fa-solid fa-carrot text-4xl mb-3 opacity-50"></i>
+                                    <p>Noch keine Zutaten hinzugefügt.</p>
+                                    <p class="text-sm">Suche oben nach Lebensmitteln.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Rechte Spalte: Ergebnisse & Portionen -->
+                <div class="col-right space-y-6">
+                    
+                    <!-- Box: Nährwerte gesamt -->
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-end mb-4">
+                            <h2 class="text-lg font-semibold text-gray-800"><i class="fa-solid fa-scale-unbalanced mr-2 text-primary"></i>Nährwerte gesamt</h2>
+                            <span class="text-sm text-gray-500" id="total-weight-display">0 g</span>
+                        </div>
+                        <div id="total-results-grid" class="results-grid"></div>
+                    </section>
+
+                    <!-- Box: Portionen -->
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-24 h-24 bg-primary opacity-5 rounded-bl-full -z-10"></div>
+                        
+                        <!-- Bereich: Portionen einstellen -->
+                        <div class="mb-6">
+                            <h2 class="text-lg font-semibold mb-4 text-gray-800"><i class="fa-solid fa-chart-pie mr-2 text-primary"></i>Portionen</h2>
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                                <label for="portions-input" class="text-sm font-medium text-gray-700 flex-1">Anzahl Portionen</label>
+                                <div class="flex items-center self-start sm:self-auto bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden w-32 shrink-0">
+                                    <button onclick="updatePortions(-1)" class="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors"><i class="fa-solid fa-minus text-xs"></i></button>
+                                    <input type="number" id="portions-input" value="1" min="1" step="1" class="w-12 h-10 text-center font-semibold text-gray-800 focus:outline-none border-x border-gray-200" onchange="setPortions(this.value)">
+                                    <button onclick="updatePortions(1)" class="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors"><i class="fa-solid fa-plus text-xs"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="border-gray-100 mb-6">
+
+                        <!-- Bereich: Nährwerte pro Portion -->
+                        <div>
+                            <div class="flex justify-between items-end mb-4">
+                                <h2 class="text-lg font-semibold text-gray-800"><i class="fa-solid fa-utensils mr-2 text-gray-400"></i>Nährwerte pro Portion</h2>
+                                <span class="text-sm text-gray-500" id="portion-weight-display">0 g</span>
+                            </div>
+                            <div id="portion-results-grid" class="results-grid"></div>
+                        </div>
+                    </section>
+
+                </div>
+            </div>
+
+            <section class="mt-6">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-gray-800"><i class="fa-solid fa-file-export mr-2 text-primary"></i>Rezept exportieren</h2>
+                        </div>
+                        <button id="export-docx-btn" onclick="openExportModal(this)" class="bg-primary text-white hover:bg-primary/90 px-5 py-3 rounded-xl transition-all font-medium flex items-center justify-center gap-2 whitespace-nowrap shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 self-start sm:self-auto">
+                            <i class="fa-solid fa-file-export"></i><span>Exportieren</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="mobile-search-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[55] hidden flex items-center justify-center p-2 sm:p-4 transition-opacity">
+            <div class="bg-white rounded-[28px] shadow-xl w-full max-w-3xl h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] overflow-hidden flex flex-col transform transition-all">
+                <div class="p-4 md:p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h2 class="text-xl font-bold text-gray-800"><i class="fa-solid fa-search text-primary mr-2"></i>Suchen</h2>
+                    <button type="button" onclick="closeMobileSearchModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-5 border-b border-gray-100 bg-gray-50/30">
+                    <div class="relative">
+                        <input type="text" id="mobile-search-input" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="mobile-search-results" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none text-gray-700 bg-white" placeholder="Lebensmittel suchen...">
+                        <i class="fa-solid fa-search absolute left-4 top-3.5 text-gray-400"></i>
+                    </div>
+                </div>
+                <div class="p-4 md:p-5 bg-gray-50/30 flex-1 overflow-hidden">
+                    <div id="mobile-search-results" role="listbox" class="h-full bg-white border border-gray-100 rounded-2xl shadow-sm overflow-y-auto hidden divide-y divide-gray-50"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Datenbank Modal (Inside Wrapper for proper Fixed Positioning) -->
+        <div id="db-modal" class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h2 class="text-xl font-bold text-gray-800"><i class="fa-solid fa-database text-primary mr-2"></i>Datenbank</h2>
+                    <button onclick="toggleDatabaseModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="px-4 md:px-6 py-4 bg-gray-50/30 border-b border-gray-100">
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" id="db-sort-alpha-btn" class="db-sort-btn px-4 py-2 rounded-xl border transition-all font-medium focus:outline-none focus:ring-2 focus:ring-primary/20">Alphabetisch</button>
+                        <button type="button" id="db-sort-phe-btn" class="db-sort-btn px-4 py-2 rounded-xl border transition-all font-medium focus:outline-none focus:ring-2 focus:ring-primary/20">Phe aufsteigend</button>
+                    </div>
+                </div>
+                <div class="p-4 md:p-6 overflow-y-auto flex-1 bg-gray-50/30" id="db-modal-content">
+                    <!-- Datenbankinhalte werden hier dynamisch generiert -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Mengenabfrage Modal -->
+        <div id="amount-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden transform transition-all">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h2 class="text-xl font-bold text-gray-800">Menge angeben</h2>
+                    <button onclick="closeAmountModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-6">
+                    <p class="text-gray-600 mb-4">Wie viel <span id="amount-modal-food-name" class="font-bold text-gray-800"></span> möchtest du hinzufügen?</p>
+                    <div class="relative mb-4">
+                        <input type="number" id="amount-modal-input" min="1" value="100" class="w-full pl-4 pr-12 py-3 text-xl text-center border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold text-gray-800 bg-gray-50 focus:bg-white" onkeyup="if(event.key === 'Enter') confirmAmount()">
+                        <span class="absolute right-4 top-3.5 text-gray-500 font-medium pointer-events-none">g</span>
+                    </div>
+                    <div id="amount-quick-buttons" class="flex flex-wrap gap-2 mb-3"></div>
+                    <div id="amount-modal-hint" class="text-xs text-gray-500 mb-6"></div>
+                    <div class="flex gap-3">
+                        <button onclick="closeAmountModal()" class="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors">Abbrechen</button>
+                        <button onclick="confirmAmount()" class="flex-1 py-3 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-check"></i> Hinzufügen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Nährwert-Detail Modal -->
+        <div id="food-details-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden transform transition-all">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <div class="min-w-0 pr-4">
+                        <h2 id="food-details-title" class="text-xl font-bold text-gray-800 truncate">Nährwerte</h2>
+                        <div id="food-details-category" class="text-sm text-gray-500 mt-1"></div>
+                    </div>
+                    <button onclick="closeFoodDetailsModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-6 bg-gray-50/30">
+                    <div class="flex items-center justify-between gap-3 mb-5">
+                        <div id="food-details-existing" class="text-sm text-gray-600"></div>
+                        <div class="text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full px-3 py-1">pro 100 g</div>
+                    </div>
+                    <div id="food-details-grid" class="results-grid mb-5"></div>
+                    <div class="flex gap-3">
+                        <button onclick="closeFoodDetailsModal()" class="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors">Schließen</button>
+                        <button id="food-details-add-btn" type="button" class="flex-1 py-3 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-plus"></i> Hinzufügen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Modal -->
+        <div id="export-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[80] hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden transform transition-all">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <div class="min-w-0 pr-4">
+                        <h2 class="text-xl font-bold text-gray-800 truncate">Rezept exportieren</h2>
+                        <div class="text-sm text-gray-500 mt-1">Bitte Rezept-Namen und Format wählen.</div>
+                    </div>
+                    <button type="button" onclick="closeExportModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-6">
+                    <label for="export-recipe-name-input" class="block text-sm font-medium text-gray-700 mb-2">Rezept-Name</label>
+                    <input type="text" id="export-recipe-name-input" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none text-gray-700 bg-gray-50 focus:bg-white mb-5" placeholder="Zum Beispiel Kartoffelpfanne" onkeyup="if(event.key === 'Enter') confirmExport()">
+
+                    <fieldset class="mb-5">
+                        <legend class="block text-sm font-medium text-gray-700 mb-2">Format</legend>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="cursor-pointer">
+                                <input type="radio" name="export-format" value="docx" class="sr-only peer" checked>
+                                <div class="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-medium text-gray-700 transition-all peer-checked:border-primary peer-checked:bg-violet-50 peer-checked:text-primary">
+                                    <i class="fa-solid fa-file-word"></i>
+                                    <span>DOCX</span>
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="export-format" value="pdf" class="sr-only peer">
+                                <div class="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-medium text-gray-700 transition-all peer-checked:border-primary peer-checked:bg-violet-50 peer-checked:text-primary">
+                                    <i class="fa-solid fa-file-pdf"></i>
+                                    <span>PDF</span>
+                                </div>
+                            </label>
+                        </div>
+                    </fieldset>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeExportModal()" class="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors">Abbrechen</button>
+                        <button type="button" id="confirm-export-btn" onclick="confirmExport()" class="flex-1 py-3 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-file-export"></i> Exportieren
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bestätigungsfenster: Alles löschen -->
+        <div id="clear-all-confirm-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[85] hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden transform transition-all">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <div class="min-w-0 pr-4">
+                        <h2 class="text-xl font-bold text-gray-800 truncate">Alles löschen</h2>
+                        <div class="text-sm text-gray-500 mt-1">Möchtest du wirklich alle verwendeten Zutaten entfernen?</div>
+                    </div>
+                    <button type="button" onclick="closeClearAllConfirmModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-6">
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeClearAllConfirmModal()" class="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors">Abbrechen</button>
+                        <button type="button" id="confirm-clear-all-btn" onclick="confirmClearAllIngredients()" class="flex-1 py-3 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-trash-can"></i> Löschen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="mockup-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[95] hidden flex items-center justify-center p-4 transition-opacity">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden transform transition-all">
+                <div class="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h2 class="text-xl font-bold text-gray-800 truncate">Samsung Galaxy S25 Ultra</h2>
+                    <button type="button" onclick="closeMockupModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors focus:outline-none"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-4 md:p-6 flex items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100">
+                    <div class="mockup-device-frame">
+                        <div class="mockup-device-camera"></div>
+                        <div class="mockup-device-screen">
+                            <iframe id="mockup-iframe" title="Samsung Galaxy S25 Ultra Mockup" loading="lazy"></iframe>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div> <!-- /#app-wrapper -->
+
+    <script>
+        // --- 1. DATEN & KONFIGURATIONEN ---
+        const compactMacroCardLabelClass = 'block min-w-0 truncate leading-tight text-[8px] sm:text-[10px] md:text-[11px] tracking-normal';
+
+        const nutrientsConfig = [
+            { id: 'phe', label: 'Phenylalanin', unit: 'mg', decimals: 0, spanClass: 'col-span-3', theme: { text: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200 shadow-sm', icon: 'fa-dna' } },
+            { id: 'calories', label: 'Kalorien', unit: 'kcal', decimals: 0, spanClass: 'col-span-3', theme: { text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-100', icon: 'fa-fire' } },
+            { id: 'protein', label: 'Eiweiß', unit: 'g', decimals: 1, spanClass: 'col-span-2', cardLabelClass: compactMacroCardLabelClass, theme: { text: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-100', icon: 'fa-egg' } },
+            { id: 'fat', label: 'Fett', unit: 'g', decimals: 1, spanClass: 'col-span-2', cardLabelClass: compactMacroCardLabelClass, theme: { text: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-100', icon: 'fa-cheese' } },
+            { id: 'carbs', label: 'Kohlenhydrate', unit: 'g', decimals: 1, spanClass: 'col-span-2', cardLabelClass: compactMacroCardLabelClass, theme: { text: 'text-green-700', bg: 'bg-green-50', border: 'border-green-100', icon: 'fa-bread-slice' } }
+        ];
+
+        const exportMetricThemeMap = {
+            phe: { fill: 'FAF5FF', border: 'E9D5FF', text: '7E22CE' },
+            calories: { fill: 'FEF2F2', border: 'FECACA', text: 'B91C1C' },
+            protein: { fill: 'EFF6FF', border: 'BFDBFE', text: '1D4ED8' },
+            fat: { fill: 'FFFBEB', border: 'FDE68A', text: 'A16207' },
+            carbs: { fill: 'F0FDF4', border: 'BBF7D0', text: '15803D' }
+        };
+
+        const exportVisualConfig = {
+            titleColor: '111827',
+            mutedColor: '4B5563',
+            tableHeaderFill: 'F3F4F6',
+            tableHeaderText: '374151',
+            tableBorder: 'E5E7EB',
+            pdf: {
+                left: 15,
+                right: 15,
+                top: 18,
+                bottom: 15,
+                sectionGap: 10,
+                cardGap: 2,
+                cardHeight: 24,
+                cardRadius: 2.4
+            }
+        };
+
+        const getExportMetricTheme = (nutrientId) => exportMetricThemeMap[nutrientId] || {
+            fill: 'F9FAFB',
+            border: 'E5E7EB',
+            text: '111827'
+        };
+
+        const getWeightDecimals = (value) => Number.isInteger(value) ? 0 : 1;
+        const formatExportWeight = (value) => `${formatDocxNumber(value, getWeightDecimals(value))} g`;
+
+        const sortExportItemsByName = (items) => [...items].sort((a, b) => a.name.localeCompare(b.name, 'de-DE', { sensitivity: 'base' }));
+
+        const getExportIngredientRows = () => sortExportItemsByName(state.ingredients.map((item) => {
+            const food = getFoodById(item.id);
+            const itemPhe = food ? (food.phe * item.amount / 100) : 0;
+            return {
+                name: food ? food.name : 'Unbekannt',
+                amount: `${formatDocxNumber(item.amount, getWeightDecimals(item.amount))} g`,
+                phe: `${formatDocxNumber(itemPhe, 0)} mg`
+            };
+        }));
+
+        const getExportMetricCards = (totals, divisor = 1) => nutrientsConfig.map((nutrient) => ({
+            id: nutrient.id,
+            label: nutrient.label,
+            value: `${formatDocxNumber(totals[nutrient.id] / divisor, nutrient.decimals)} ${nutrient.unit}`,
+            theme: getExportMetricTheme(nutrient.id)
+        }));
+
+        const hexToRgb = (hexColor) => {
+            const normalized = String(hexColor || '').replace('#', '');
+            if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return [17, 24, 39];
+            return [
+                parseInt(normalized.slice(0, 2), 16),
+                parseInt(normalized.slice(2, 4), 16),
+                parseInt(normalized.slice(4, 6), 16)
+            ];
+        };
+
+        const foodDatabase = [
+            { id: 1, name: "Amino (metaX XPhe Kid)", category: "Ergänzung", phe: 0, protein: 74, carbs: 0, fat: 0, calories: 297 },
+            { id: 2, name: "Amino (metaX XPhe Mix LCP Infant)", category: "Ergänzung", phe: 0, protein: 1.7, carbs: 10, fat: 3, calories: 74 },
+            { id: 3, name: "Ananas", category: "Obst", phe: 35, protein: 0.5, carbs: 13, fat: 0.1, calories: 50 },
+            { id: 4, name: "Apfel", category: "Obst", phe: 11, protein: 0.3, carbs: 11.4, fat: 0.4, calories: 52 },
+            { id: 5, name: "Aprikose", category: "Obst", phe: 45, protein: 1.4, carbs: 9, fat: 0.1, calories: 48 },
+            { id: 6, name: "Aptamil (PROfutura DuoAdvance Pre)", category: "Ergänzung", phe: 56, protein: 1.3, carbs: 7, fat: 3.4, calories: 66 },
+            { id: 7, name: "Artischocke", category: "Gemüse", phe: 150, protein: 3.3, carbs: 11, fat: 0.2, calories: 47 },
+            { id: 8, name: "Aubergine", category: "Gemüse", phe: 54, protein: 1.2, carbs: 6, fat: 0.2, calories: 24 },
+            { id: 9, name: "Austernpilze", category: "Gemüse", phe: 120, protein: 3.3, carbs: 6, fat: 0.4, calories: 33 },
+            { id: 10, name: "Avocado", category: "Obst", phe: 60, protein: 1.4, carbs: 9, fat: 15, calories: 160 },
+            { id: 11, name: "Bacon/Bauchspeck (roh)", category: "Fleisch", phe: 650, protein: 13, carbs: 1, fat: 45, calories: 458 },
+            { id: 12, name: "Banane", category: "Obst", phe: 44, protein: 1.2, carbs: 20, fat: 0.2, calories: 89 },
+            { id: 13, name: "Birne", category: "Obst", phe: 18, protein: 0.5, carbs: 15, fat: 0.1, calories: 57 },
+            { id: 14, name: "Blaubeeren / Heidelbeeren", category: "Obst", phe: 33, protein: 0.6, carbs: 14, fat: 0.3, calories: 57 },
+            { id: 15, name: "Blumenkohl", category: "Gemüse", phe: 77, protein: 2.5, carbs: 5, fat: 0.3, calories: 25 },
+            { id: 16, name: "Brokkoli", category: "Gemüse", phe: 120, protein: 3.8, carbs: 7, fat: 0.4, calories: 34 },
+            { id: 17, name: "Brombeeren", category: "Obst", phe: 45, protein: 1.4, carbs: 10, fat: 0.5, calories: 43 },
+            { id: 18, name: "Brötchen", category: "Getreide & Backwaren", phe: 450, protein: 8, carbs: 50, fat: 1.5, calories: 270 },
+            { id: 19, name: "Butter", category: "Fette & Öle", phe: 32, protein: 0.7, carbs: 0.6, fat: 82, calories: 741 },
+            { id: 20, name: "Butterkeks", category: "Süßwaren", phe: 350, protein: 7, carbs: 73, fat: 15, calories: 460 },
+            { id: 21, name: "Butternut-Kürbis", category: "Gemüse", phe: 34, protein: 1, carbs: 12, fat: 0.1, calories: 45 },
+            { id: 22, name: "Butterschmalz", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 99.8, calories: 879 },
+            { id: 23, name: "Cantaloupe-Melone", category: "Obst", phe: 25, protein: 0.8, carbs: 8, fat: 0.2, calories: 34 },
+            { id: 24, name: "Champignons", category: "Gemüse", phe: 74, protein: 4.1, carbs: 3, fat: 0.3, calories: 22 },
+            { id: 25, name: "Chiasamen", category: "Nüsse & Samen", phe: 850, protein: 17, carbs: 42, fat: 31, calories: 486 },
+            { id: 26, name: "Chicorée", category: "Gemüse", phe: 40, protein: 1, carbs: 4, fat: 0.2, calories: 17 },
+            { id: 27, name: "Chinakohl", category: "Gemüse", phe: 40, protein: 1.2, carbs: 2, fat: 0.2, calories: 13 },
+            { id: 28, name: "Clementine", category: "Obst", phe: 35, protein: 0.8, carbs: 12, fat: 0.2, calories: 47 },
+            { id: 29, name: "Cornflakes", category: "Frühstückscerealien", phe: 350, protein: 7, carbs: 84, fat: 0.4, calories: 378 },
+            { id: 30, name: "Cranberries (frisch)", category: "Obst", phe: 40, protein: 0.5, carbs: 12, fat: 0.1, calories: 46 },
+            { id: 31, name: "Dattel (frisch)", category: "Obst", phe: 45, protein: 1.8, carbs: 37, fat: 0.2, calories: 142 },
+            { id: 32, name: "Doppelkeks (mit Creme)", category: "Süßwaren", phe: 275, protein: 5.5, carbs: 65, fat: 23, calories: 500 },
+            { id: 33, name: "Drachenfrucht (Pitahaya)", category: "Obst", phe: 25, protein: 1.1, carbs: 11, fat: 0.4, calories: 50 },
+            { id: 34, name: "Ei, ganz", category: "Milchprodukte", phe: 650, protein: 13, carbs: 1, fat: 10, calories: 147 },
+            { id: 35, name: "Eisbergsalat", category: "Gemüse", phe: 35, protein: 0.9, carbs: 3, fat: 0.1, calories: 14 },
+            { id: 36, name: "Erbsen", category: "Gemüse", phe: 400, protein: 6.6, carbs: 14, fat: 0.4, calories: 91 },
+            { id: 37, name: "Erdbeeren", category: "Obst", phe: 28, protein: 0.8, carbs: 8, fat: 0.3, calories: 32 },
+            { id: 38, name: "Erdnüsse", category: "Nüsse & Samen", phe: 1300, protein: 26, carbs: 16, fat: 49, calories: 567 },
+            { id: 39, name: "Erdnussriegel", category: "Süßwaren", phe: 800, protein: 16, carbs: 45, fat: 28, calories: 500 },
+            { id: 40, name: "Fantomalt", category: "Ergänzung", phe: 0, protein: 0, carbs: 95, fat: 0, calories: 380 },
+            { id: 41, name: "Feige (frisch)", category: "Obst", phe: 35, protein: 0.8, carbs: 19, fat: 0.3, calories: 74 },
+            { id: 42, name: "Feldsalat", category: "Gemüse", phe: 96, protein: 1.8, carbs: 2, fat: 0.4, calories: 14 },
+            { id: 43, name: "Fenchel", category: "Gemüse", phe: 55, protein: 1.4, carbs: 7, fat: 0.2, calories: 31 },
+            { id: 44, name: "Forelle (roh)", category: "Fisch", phe: 1000, protein: 20, carbs: 0, fat: 4.3, calories: 119 },
+            { id: 45, name: "Fruchtgummi", category: "Süßwaren", phe: 25, protein: 0.5, carbs: 80, fat: 0, calories: 343 },
+            { id: 46, name: "Garnelen (roh)", category: "Fisch", phe: 1200, protein: 24, carbs: 0, fat: 0.5, calories: 85 },
+            { id: 47, name: "Geleebananen", category: "Süßwaren", phe: 150, protein: 3, carbs: 75, fat: 4, calories: 350 },
+            { id: 48, name: "Ghee", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 99.8, calories: 879 },
+            { id: 49, name: "Gouda", category: "Milchprodukte", phe: 1250, protein: 25, carbs: 0, fat: 27, calories: 356 },
+            { id: 50, name: "Granadilla", category: "Obst", phe: 60, protein: 1.6, carbs: 23, fat: 0.7, calories: 97 },
+            { id: 51, name: "Granatapfel", category: "Obst", phe: 60, protein: 1.7, carbs: 19, fat: 1.2, calories: 83 },
+            { id: 52, name: "Grapefruit", category: "Obst", phe: 25, protein: 0.6, carbs: 11, fat: 0.1, calories: 42 },
+            { id: 53, name: "Grieß, gekocht (Weichweizengrieß)", category: "Getreide & Backwaren", phe: 100, protein: 2.5, carbs: 15, fat: 0.2, calories: 75 },
+            { id: 54, name: "Grüne Bohnen", category: "Gemüse", phe: 90, protein: 2, carbs: 7, fat: 0.1, calories: 31 },
+            { id: 55, name: "Grünkohl", category: "Gemüse", phe: 170, protein: 4.3, carbs: 9, fat: 0.9, calories: 49 },
+            { id: 56, name: "Guave", category: "Obst", phe: 70, protein: 2.6, carbs: 14, fat: 1, calories: 68 },
+            { id: 57, name: "Gummibärchen", category: "Süßwaren", phe: 345, protein: 6.9, carbs: 77, fat: 0.1, calories: 343 },
+            { id: 58, name: "Gurke", category: "Gemüse", phe: 15, protein: 0.6, carbs: 3.6, fat: 0.1, calories: 15 },
+            { id: 59, name: "Hackfleisch, gemischt (roh)", category: "Fleisch", phe: 900, protein: 18, carbs: 0, fat: 15, calories: 212 },
+            { id: 60, name: "Haferflocken", category: "Getreide & Backwaren", phe: 650, protein: 13.5, carbs: 60, fat: 7, calories: 372 },
+            { id: 61, name: "Hähnchenbrust (roh)", category: "Fleisch", phe: 1150, protein: 23, carbs: 0, fat: 1.2, calories: 110 },
+            { id: 62, name: "Hähnchenbrust, gekocht", category: "Fleisch", phe: 1550, protein: 31, carbs: 0, fat: 3.6, calories: 165 },
+            { id: 63, name: "Haselnüsse", category: "Nüsse & Samen", phe: 750, protein: 15, carbs: 17, fat: 61, calories: 628 },
+            { id: 64, name: "Hering (roh)", category: "Fisch", phe: 950, protein: 19, carbs: 0, fat: 9, calories: 158 },
+            { id: 65, name: "Himbeeren", category: "Obst", phe: 49, protein: 1.3, carbs: 12, fat: 0.7, calories: 52 },
+            { id: 66, name: "Hokkaido-Kürbis", category: "Gemüse", phe: 34, protein: 1.1, carbs: 13, fat: 0.6, calories: 63 },
+            { id: 67, name: "Joghurt natur", category: "Milchprodukte", phe: 190, protein: 3.8, carbs: 5, fat: 3, calories: 61 },
+            { id: 68, name: "Kabeljau (roh)", category: "Fisch", phe: 900, protein: 18, carbs: 0, fat: 0.7, calories: 82 },
+            { id: 69, name: "Kaki (Persimone)", category: "Obst", phe: 35, protein: 0.6, carbs: 19, fat: 0.2, calories: 70 },
+            { id: 70, name: "Karamellbonbons", category: "Süßwaren", phe: 25, protein: 0.5, carbs: 77, fat: 8, calories: 382 },
+            { id: 71, name: "Karamellriegel", category: "Süßwaren", phe: 200, protein: 4, carbs: 65, fat: 23, calories: 480 },
+            { id: 72, name: "Karotte", category: "Gemüse", phe: 31, protein: 0.8, carbs: 10, fat: 0.2, calories: 41 },
+            { id: 73, name: "Karotte Pur (DM bio)", category: "Gemüse", phe: 31, protein: 0.8, carbs: 5, fat: 0.1, calories: 26 },
+            { id: 74, name: "Karottensaft (Babylove)", category: "Gemüse", phe: 25, protein: 0.5, carbs: 7, fat: 0.1, calories: 32 },
+            { id: 75, name: "Kartoffeln", category: "Gemüse", phe: 91, protein: 1.9, carbs: 17, fat: 0.1, calories: 77 },
+            { id: 76, name: "Kaubonbons", category: "Süßwaren", phe: 25, protein: 0.5, carbs: 85, fat: 4, calories: 380 },
+            { id: 77, name: "Kaugummi (zuckerfrei)", category: "Süßwaren", phe: 0, protein: 0, carbs: 60, fat: 0, calories: 145 },
+            { id: 78, name: "Kichererbsen, gekocht", category: "Hülsenfrüchte", phe: 450, protein: 8.3, carbs: 27, fat: 2.6, calories: 164 },
+            { id: 79, name: "Kiwi", category: "Obst", phe: 38, protein: 1, carbs: 15, fat: 0.5, calories: 61 },
+            { id: 80, name: "Kohlrabi", category: "Gemüse", phe: 45, protein: 1.9, carbs: 6, fat: 0.1, calories: 27 },
+            { id: 81, name: "Kopfsalat", category: "Gemüse", phe: 30, protein: 1.2, carbs: 2.9, fat: 0.2, calories: 14 },
+            { id: 82, name: "Krokant", category: "Süßwaren", phe: 500, protein: 10, carbs: 60, fat: 25, calories: 520 },
+            { id: 83, name: "Lachs (roh)", category: "Fisch", phe: 1000, protein: 20, carbs: 0, fat: 13, calories: 208 },
+            { id: 84, name: "Lakritz", category: "Süßwaren", phe: 185, protein: 3.7, carbs: 73, fat: 0.2, calories: 313 },
+            { id: 85, name: "Lammfleisch (roh)", category: "Fleisch", phe: 1000, protein: 20, carbs: 0, fat: 21, calories: 282 },
+            { id: 86, name: "Lauch (Porree)", category: "Gemüse", phe: 70, protein: 1.5, carbs: 6, fat: 0.3, calories: 31 },
+            { id: 87, name: "Lebkuchen", category: "Süßwaren", phe: 300, protein: 6, carbs: 65, fat: 8, calories: 356 },
+            { id: 88, name: "Leinöl", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 884 },
+            { id: 89, name: "Limette", category: "Obst", phe: 20, protein: 0.7, carbs: 11, fat: 0.2, calories: 30 },
+            { id: 90, name: "Linsen, gekocht", category: "Hülsenfrüchte", phe: 450, protein: 9, carbs: 20, fat: 0.4, calories: 116 },
+            { id: 91, name: "Litschi", category: "Obst", phe: 35, protein: 0.9, carbs: 17, fat: 0.4, calories: 66 },
+            { id: 92, name: "Lutscher", category: "Süßwaren", phe: 0, protein: 0, carbs: 98, fat: 0, calories: 392 },
+            { id: 93, name: "Mais (Körner)", category: "Gemüse", phe: 200, protein: 3.3, carbs: 19, fat: 1.2, calories: 86 },
+            { id: 94, name: "Makrele (roh)", category: "Fisch", phe: 950, protein: 19, carbs: 0, fat: 14, calories: 205 },
+            { id: 95, name: "Mandarine", category: "Obst", phe: 35, protein: 0.8, carbs: 13, fat: 0.3, calories: 53 },
+            { id: 96, name: "Mandeln", category: "Nüsse & Samen", phe: 1050, protein: 21, carbs: 22, fat: 50, calories: 579 },
+            { id: 97, name: "Mango", category: "Obst", phe: 45, protein: 0.8, carbs: 15, fat: 0.4, calories: 60 },
+            { id: 98, name: "Mangold", category: "Gemüse", phe: 110, protein: 2.2, carbs: 4, fat: 0.2, calories: 19 },
+            { id: 99, name: "Margarine", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0.5, fat: 80, calories: 717 },
+            { id: 100, name: "Marshmallows", category: "Süßwaren", phe: 100, protein: 2, carbs: 81, fat: 0.2, calories: 318 },
+            { id: 101, name: "Marzipan", category: "Süßwaren", phe: 400, protein: 8, carbs: 65, fat: 22, calories: 481 },
+            { id: 102, name: "Milasan Pre", category: "Ergänzung", phe: 70, protein: 1.4, carbs: 7, fat: 3.5, calories: 67 },
+            { id: 103, name: "Milch 3,5%", category: "Milchprodukte", phe: 165, protein: 3.3, carbs: 4.8, fat: 3.5, calories: 64 },
+            { id: 104, name: "Mirabelle", category: "Obst", phe: 45, protein: 0.7, carbs: 15, fat: 0.2, calories: 63 },
+            { id: 105, name: "Mozzarella", category: "Milchprodukte", phe: 900, protein: 18, carbs: 2, fat: 22, calories: 280 },
+            { id: 106, name: "Müsli (Standard)", category: "Frühstückscerealien", phe: 500, protein: 9, carbs: 65, fat: 6, calories: 367 },
+            { id: 107, name: "Muttermilch", category: "Ergänzung", phe: 47, protein: 1.1, carbs: 7, fat: 4, calories: 65 },
+            { id: 108, name: "Nashi-Birne", category: "Obst", phe: 20, protein: 0.5, carbs: 11, fat: 0.2, calories: 42 },
+            { id: 109, name: "Nektarine", category: "Obst", phe: 35, protein: 1.1, carbs: 11, fat: 0.3, calories: 44 },
+            { id: 110, name: "Nougatschokolade", category: "Süßwaren", phe: 450, protein: 9, carbs: 54, fat: 32, calories: 545 },
+            { id: 111, name: "Nudeln, gekocht", category: "Getreide & Backwaren", phe: 290, protein: 5.8, carbs: 31, fat: 0.9, calories: 158 },
+            { id: 112, name: "Nudeln, trocken", category: "Getreide & Backwaren", phe: 650, protein: 12, carbs: 71, fat: 2, calories: 359 },
+            { id: 113, name: "Nugat", category: "Süßwaren", phe: 400, protein: 8, carbs: 55, fat: 26, calories: 490 },
+            { id: 114, name: "Okra", category: "Gemüse", phe: 100, protein: 2, carbs: 7, fat: 0.2, calories: 33 },
+            { id: 115, name: "Olivenöl", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 884 },
+            { id: 116, name: "Orange", category: "Obst", phe: 45, protein: 0.9, carbs: 12, fat: 0.1, calories: 47 },
+            { id: 117, name: "Pak Choi", category: "Gemüse", phe: 60, protein: 1.5, carbs: 2.2, fat: 0.2, calories: 13 },
+            { id: 118, name: "Papaya", category: "Obst", phe: 30, protein: 0.5, carbs: 11, fat: 0.3, calories: 43 },
+            { id: 119, name: "Paprika, rot", category: "Gemüse", phe: 63, protein: 1.3, carbs: 6, fat: 0.3, calories: 31 },
+            { id: 120, name: "Parmesan", category: "Milchprodukte", phe: 1750, protein: 35, carbs: 4, fat: 29, calories: 431 },
+            { id: 121, name: "Passionsfrucht (Maracuja)", category: "Obst", phe: 70, protein: 2.2, carbs: 23, fat: 0.7, calories: 97 },
+            { id: 122, name: "Pastinake", category: "Gemüse", phe: 45, protein: 1.3, carbs: 18, fat: 0.3, calories: 75 },
+            { id: 123, name: "Petersilienwurzel", category: "Gemüse", phe: 80, protein: 1.5, carbs: 10, fat: 0.6, calories: 51 },
+            { id: 124, name: "Pfefferminzbonbons", category: "Süßwaren", phe: 0, protein: 0, carbs: 98, fat: 0, calories: 392 },
+            { id: 125, name: "Pfirsich", category: "Obst", phe: 35, protein: 0.9, carbs: 10, fat: 0.3, calories: 39 },
+            { id: 126, name: "Pflaume", category: "Obst", phe: 45, protein: 0.7, carbs: 11, fat: 0.3, calories: 46 },
+            { id: 127, name: "Pralinen", category: "Süßwaren", phe: 250, protein: 5, carbs: 55, fat: 30, calories: 520 },
+            { id: 128, name: "Preiselbeeren (frisch)", category: "Obst", phe: 40, protein: 0.4, carbs: 12, fat: 0.1, calories: 46 },
+            { id: 129, name: "Putenbrust (roh)", category: "Fleisch", phe: 1200, protein: 24, carbs: 0, fat: 1.2, calories: 107 },
+            { id: 130, name: "Quark, mager", category: "Milchprodukte", phe: 600, protein: 12, carbs: 4, fat: 0.2, calories: 67 },
+            { id: 131, name: "Radieschen", category: "Gemüse", phe: 60, protein: 1.1, carbs: 3.4, fat: 0.1, calories: 16 },
+            { id: 132, name: "Rambutan", category: "Obst", phe: 30, protein: 0.7, carbs: 21, fat: 0.2, calories: 82 },
+            { id: 133, name: "Rapsöl", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 884 },
+            { id: 134, name: "Reis, gekocht", category: "Getreide & Backwaren", phe: 130, protein: 2.6, carbs: 28, fat: 0.3, calories: 130 },
+            { id: 135, name: "Reis, roh", category: "Getreide & Backwaren", phe: 350, protein: 7.1, carbs: 78, fat: 0.7, calories: 361 },
+            { id: 136, name: "Rettich", category: "Gemüse", phe: 55, protein: 1.2, carbs: 4.1, fat: 0.1, calories: 18 },
+            { id: 137, name: "Rinderhack (roh)", category: "Fleisch", phe: 950, protein: 19, carbs: 0, fat: 20, calories: 254 },
+            { id: 138, name: "Rindertalg", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 902 },
+            { id: 139, name: "Rindfleisch mager (roh)", category: "Fleisch", phe: 1050, protein: 21, carbs: 0, fat: 4, calories: 121 },
+            { id: 140, name: "Roggenbrot", category: "Getreide & Backwaren", phe: 300, protein: 6, carbs: 43, fat: 1.2, calories: 219 },
+            { id: 141, name: "Rosenkohl", category: "Gemüse", phe: 190, protein: 3.8, carbs: 9, fat: 0.3, calories: 43 },
+            { id: 142, name: "Rote Beete Saft", category: "Gemüse", phe: 21, protein: 1.1, carbs: 8, fat: 0.1, calories: 35 },
+            { id: 143, name: "Rote Bete", category: "Gemüse", phe: 26, protein: 1.5, carbs: 10, fat: 0.2, calories: 43 },
+            { id: 144, name: "Rote Johannisbeeren", category: "Obst", phe: 45, protein: 1.4, carbs: 14, fat: 0.2, calories: 56 },
+            { id: 145, name: "Rotkohl", category: "Gemüse", phe: 32, protein: 1.5, carbs: 7, fat: 0.2, calories: 31 },
+            { id: 146, name: "Rucola", category: "Gemüse", phe: 110, protein: 2.6, carbs: 3.7, fat: 0.7, calories: 25 },
+            { id: 147, name: "Sardinen (roh)", category: "Fisch", phe: 1000, protein: 20, carbs: 0, fat: 11, calories: 208 },
+            { id: 148, name: "Sauerkirschen", category: "Obst", phe: 60, protein: 1.1, carbs: 12, fat: 0.3, calories: 50 },
+            { id: 149, name: "Saure Fruchtgummis", category: "Süßwaren", phe: 25, protein: 0.5, carbs: 80, fat: 0, calories: 340 },
+            { id: 150, name: "Schinken, gekocht", category: "Fleisch", phe: 900, protein: 18, carbs: 1, fat: 5, calories: 127 },
+            { id: 151, name: "Schlagsahne, 30%", category: "Milchprodukte", phe: 120, protein: 2.4, carbs: 3, fat: 30, calories: 290 },
+            { id: 152, name: "Schokokeks", category: "Süßwaren", phe: 325, protein: 6.5, carbs: 65, fat: 22, calories: 480 },
+            { id: 153, name: "Schokolade (Vollmilch)", category: "Süßwaren", phe: 380, protein: 7.6, carbs: 59, fat: 30, calories: 535 },
+            { id: 154, name: "Schokolade (weiß)", category: "Süßwaren", phe: 300, protein: 6, carbs: 59, fat: 32, calories: 539 },
+            { id: 155, name: "Schokolade (Zartbitter 70%)", category: "Süßwaren", phe: 450, protein: 9, carbs: 36, fat: 43, calories: 598 },
+            { id: 156, name: "Schokoriegel", category: "Süßwaren", phe: 300, protein: 6, carbs: 60, fat: 24, calories: 490 },
+            { id: 157, name: "Schwarze Johannisbeeren", category: "Obst", phe: 60, protein: 1.3, carbs: 15, fat: 0.4, calories: 63 },
+            { id: 158, name: "Schwarzwurzel", category: "Gemüse", phe: 80, protein: 2.8, carbs: 12, fat: 0.4, calories: 54 },
+            { id: 159, name: "Schweinefleisch mager (roh)", category: "Fleisch", phe: 1050, protein: 21, carbs: 0, fat: 6, calories: 143 },
+            { id: 160, name: "Schweinefleisch, mager", category: "Fleisch", phe: 1100, protein: 22, carbs: 0, fat: 6, calories: 143 },
+            { id: 161, name: "Schweinehack (roh)", category: "Fleisch", phe: 850, protein: 17, carbs: 0, fat: 21, calories: 263 },
+            { id: 162, name: "Schweineschmalz", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 897 },
+            { id: 163, name: "Seelachs/Alaska-Pollock (roh)", category: "Fisch", phe: 900, protein: 18, carbs: 0, fat: 1, calories: 92 },
+            { id: 164, name: "Sellerie (Stange)", category: "Gemüse", phe: 69, protein: 1.2, carbs: 3, fat: 0.2, calories: 16 },
+            { id: 165, name: "Sellerieknolle", category: "Gemüse", phe: 47, protein: 1.6, carbs: 9, fat: 0.3, calories: 42 },
+            { id: 166, name: "Sesamriegel", category: "Süßwaren", phe: 600, protein: 12, carbs: 45, fat: 30, calories: 510 },
+            { id: 167, name: "Shiitake", category: "Gemüse", phe: 160, protein: 2.2, carbs: 7, fat: 0.5, calories: 34 },
+            { id: 168, name: "Sonnenblumenkerne", category: "Nüsse & Samen", phe: 1050, protein: 21, carbs: 20, fat: 51, calories: 584 },
+            { id: 169, name: "Sonnenblumenöl", category: "Fette & Öle", phe: 0, protein: 0, carbs: 0, fat: 100, calories: 884 },
+            { id: 170, name: "Spargel", category: "Gemüse", phe: 60, protein: 2, carbs: 4, fat: 0.1, calories: 20 },
+            { id: 171, name: "Spekulatius", category: "Süßwaren", phe: 300, protein: 6, carbs: 68, fat: 20, calories: 480 },
+            { id: 172, name: "Spinat", category: "Gemüse", phe: 110, protein: 2.8, carbs: 3.6, fat: 0.4, calories: 23 },
+            { id: 173, name: "Stachelbeeren", category: "Obst", phe: 35, protein: 0.9, carbs: 10, fat: 0.6, calories: 44 },
+            { id: 174, name: "Steckrübe", category: "Gemüse", phe: 60, protein: 1.1, carbs: 9, fat: 0.2, calories: 38 },
+            { id: 175, name: "Sternfrucht (Karambole)", category: "Obst", phe: 35, protein: 1, carbs: 7, fat: 0.3, calories: 31 },
+            { id: 176, name: "Süßkartoffel", category: "Gemüse", phe: 84, protein: 1.6, carbs: 28, fat: 0.1, calories: 117 },
+            { id: 177, name: "Süßkirschen", category: "Obst", phe: 55, protein: 1, carbs: 16, fat: 0.2, calories: 63 },
+            { id: 178, name: "Tempeh", category: "Sojaprodukte", phe: 950, protein: 19, carbs: 8, fat: 11, calories: 192 },
+            { id: 179, name: "Thunfisch", category: "Fisch", phe: 1200, protein: 24, carbs: 0, fat: 3, calories: 132 },
+            { id: 180, name: "Thunfisch (roh)", category: "Fisch", phe: 1150, protein: 23, carbs: 0, fat: 5, calories: 144 },
+            { id: 181, name: "Tilapia (roh)", category: "Fisch", phe: 1000, protein: 20, carbs: 0, fat: 1.7, calories: 96 },
+            { id: 182, name: "Toffees", category: "Süßwaren", phe: 25, protein: 0.5, carbs: 70, fat: 15, calories: 430 },
+            { id: 183, name: "Tofu, natur", category: "Sojaprodukte", phe: 600, protein: 12, carbs: 3, fat: 9, calories: 144 },
+            { id: 184, name: "Tomate", category: "Gemüse", phe: 30, protein: 1, carbs: 3.9, fat: 0.2, calories: 18 },
+            { id: 185, name: "Topinambur", category: "Gemüse", phe: 100, protein: 2, carbs: 17, fat: 0.4, calories: 73 },
+            { id: 186, name: "Trauben", category: "Obst", phe: 35, protein: 0.6, carbs: 18, fat: 0.2, calories: 69 },
+            { id: 187, name: "Waffeln mit Cremefüllung", category: "Süßwaren", phe: 300, protein: 6, carbs: 60, fat: 26, calories: 500 },
+            { id: 188, name: "Walnüsse", category: "Nüsse & Samen", phe: 750, protein: 15, carbs: 14, fat: 65, calories: 654 },
+            { id: 189, name: "Wassermelone", category: "Obst", phe: 15, protein: 0.6, carbs: 8, fat: 0.2, calories: 30 },
+            { id: 190, name: "Weiße Bohnen, gekocht", category: "Hülsenfrüchte", phe: 400, protein: 8.3, carbs: 25, fat: 0.5, calories: 139 },
+            { id: 191, name: "Weiße Johannisbeeren", category: "Obst", phe: 40, protein: 1.2, carbs: 14, fat: 0.2, calories: 56 },
+            { id: 192, name: "Weißkohl", category: "Gemüse", phe: 65, protein: 1.3, carbs: 6, fat: 0.2, calories: 25 },
+            { id: 193, name: "Weizenbrot", category: "Getreide & Backwaren", phe: 400, protein: 8, carbs: 49, fat: 3, calories: 265 },
+            { id: 194, name: "Wirsing", category: "Gemüse", phe: 80, protein: 2.5, carbs: 4, fat: 0.4, calories: 27 },
+            { id: 195, name: "Zartbitterschokolade", category: "Süßwaren", phe: 250, protein: 5, carbs: 46, fat: 35, calories: 530 },
+            { id: 196, name: "Zitrone", category: "Obst", phe: 20, protein: 1.1, carbs: 9, fat: 0.3, calories: 29 },
+            { id: 197, name: "Zucchini", category: "Gemüse", phe: 83, protein: 2, carbs: 3.1, fat: 0.3, calories: 17 },
+            { id: 198, name: "Zuckererbsen (Schoten)", category: "Gemüse", phe: 152, protein: 4, carbs: 14, fat: 0.2, calories: 69 },
+            { id: 199, name: "Zwieback, glutenfrei (Schär)", category: "Getreide & Backwaren", phe: 195, protein: 3.9, carbs: 84, fat: 4.4, calories: 393 },
+            { id: 200, name: "Zwiebel", category: "Gemüse", phe: 40, protein: 1.2, carbs: 9, fat: 0.1, calories: 40 },
+            { id: 201, name: "Eiersatzpulver (Loprofin - Nutricia)", category: "Ergänzung", phe: 5, protein: 0.33, carbs: 56, fat: 0.3, calories: 296 },
+            { id: 202, name: "Mehlmischung, eiweißarm (Hammermühle)", category: "Getreide & Backwaren", phe: 12, protein: 0.2, carbs: 84.3, fat: 0.01, calories: 344 },
+            { id: 203, name: "Weizenmehl", category: "Getreide & Backwaren", phe: 520, protein: 10.3, carbs: 76.3, fat: 1.0, calories: 364 },
+            { id: 204, name: "Vollkorn-Weizenmehl", category: "Getreide & Backwaren", phe: 682, protein: 13.4, carbs: 73.1, fat: 2.5, calories: 340 },
+            { id: 205, name: "Wasser", category: "Basics & Würzen", phe: 0, protein: 0, carbs: 0, fat: 0, calories: 0 },
+            { id: 206, name: "Salz", category: "Basics & Würzen", phe: 0, protein: 0, carbs: 0, fat: 0, calories: 0 },
+            { id: 207, name: "Zucker", category: "Basics & Würzen", phe: 0, protein: 0, carbs: 100, fat: 0, calories: 387 },
+            { id: 208, name: "Honig", category: "Basics & Würzen", phe: 10, protein: 0.3, carbs: 82.6, fat: 0, calories: 304 },
+            { id: 209, name: "Essig", category: "Basics & Würzen", phe: 0, protein: 0, carbs: 0, fat: 0, calories: 0 },
+            { id: 210, name: "Speisestärke", category: "Basics & Würzen", phe: 17, protein: 0.3, carbs: 91.4, fat: 0.1, calories: 381 },
+            { id: 211, name: "Tomatenmark", category: "Gemüse", phe: 130, protein: 4.4, carbs: 18.9, fat: 0.5, calories: 82 },
+            { id: 212, name: "Knoblauch", category: "Gemüse", phe: 167, protein: 6.3, carbs: 33.0, fat: 0.7, calories: 133 },
+            { id: 213, name: "Frischhefe", category: "Basics & Würzen", phe: 405, protein: 8.1, carbs: 7.8, fat: 1.9, calories: 105 },
+            { id: 214, name: "Trockenhefe", category: "Basics & Würzen", phe: 1900, protein: 38, carbs: 32, fat: 6, calories: 325 },
+            { id: 215, name: "Backpulver", category: "Basics & Würzen", phe: 0, protein: 0, carbs: 28, fat: 0, calories: 110 },
+            { id: 216, name: "Bio-Rindfleisch Zubereitung (HiPP)", category: "Fleisch", phe: 385, protein: 7.7, carbs: 6.6, fat: 5.7, calories: 106 },
+        ];
+
+        foodDatabase.sort((a, b) => a.name.localeCompare(b.name));
+        const foodCategories = [...new Set(foodDatabase.map(f => f.category))].sort();
+        const categoryColorConfig = {
+            'Basics & Würzen': '#64748b',
+            'Ergänzung': '#8b5cf6',
+            'Fette & Öle': '#f59e0b',
+            'Fisch': '#0ea5e9',
+            'Fleisch': '#ef4444',
+            'Frühstückscerealien': '#f97316',
+            'Gemüse': '#22c55e',
+            'Getreide & Backwaren': '#d97706',
+            'Hülsenfrüchte': '#84cc16',
+            'Milchprodukte': '#3b82f6',
+            'Nüsse & Samen': '#a16207',
+            'Obst': '#ec4899',
+            'Sojaprodukte': '#14b8a6',
+            'Süßwaren': '#f43f5e'
+        };
+
+        const rgbaFromHex = (hexColor, alpha) => {
+            const [r, g, b] = hexToRgb(hexColor);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        const categoryThemes = Object.fromEntries(
+            Object.entries({ default: '#8b5cf6', ...categoryColorConfig }).map(([key, accent]) => ([
+                key,
+                {
+                    accent,
+                    soft: rgbaFromHex(accent, 0.1),
+                    softStrong: rgbaFromHex(accent, 0.16),
+                    border: rgbaFromHex(accent, 0.24),
+                    borderStrong: rgbaFromHex(accent, 0.36),
+                    text: accent
+                }
+            ]))
+        );
+
+        const getCategoryTheme = (category) => categoryThemes[category] || categoryThemes.default;
+
+        // --- 2. STATE MANAGEMENT ---
+        const STORAGE_KEY = 'pku-rezepte-rechner-state-v2';
+        const QUICK_AMOUNTS = [10, 25, 50, 100, 150, 200];
+        const defaultState = {
+            ingredients: [],
+            portions: 1,
+            pendingFoodId: null,
+            searchActiveIndex: -1,
+            searchResultsData: [],
+            lastUsedAmounts: {},
+            undoPayload: null,
+            dbSort: 'alpha'
+        };
+
+        const state = { ...defaultState };
+        const dbExpandedCategories = new Set();
+        const MOCKUP_PREVIEW_QUERY_PARAM = 'mobileMockup';
+        const isMockupPreview = new URLSearchParams(window.location.search).get(MOCKUP_PREVIEW_QUERY_PARAM) === '1';
+        let currentMode = 'desktop';
+        let actionFeedbackTimer = null;
+        let lastAmountModalTrigger = null;
+        let lastFoodDetailsTrigger = null;
+        let lastExportTrigger = null;
+        let lastClearAllTrigger = null;
+        let lastMockupTrigger = null;
+        let lastMobileSearchTrigger = null;
+
+        const sanitizeIngredients = (ingredients) => Array.isArray(ingredients)
+            ? ingredients
+                .map(item => ({
+                    id: parseInt(item.id, 10),
+                    amount: parseFloat(item.amount)
+                }))
+                .filter(item => getFoodById(item.id) && Number.isFinite(item.amount) && item.amount > 0)
+            : [];
+
+        const sanitizeLastUsedAmounts = (lastUsedAmounts) => {
+            if (!lastUsedAmounts || typeof lastUsedAmounts !== 'object') return {};
+            return Object.fromEntries(
+                Object.entries(lastUsedAmounts)
+                    .map(([key, value]) => [String(parseInt(key, 10)), parseFloat(value)])
+                    .filter(([key, value]) => getFoodById(parseInt(key, 10)) && Number.isFinite(value) && value > 0)
+            );
+        };
+
+        const loadPersistedState = () => {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                state.ingredients = sanitizeIngredients(parsed.ingredients);
+                state.portions = Number.isInteger(parsed.portions) && parsed.portions >= 1 ? parsed.portions : 1;
+                state.lastUsedAmounts = sanitizeLastUsedAmounts(parsed.lastUsedAmounts);
+                currentMode = parsed.viewMode === 'mobile' ? 'mobile' : parsed.viewMode === 'desktop' ? 'desktop' : currentMode;
+            } catch (error) {
+                console.warn('Gespeicherter Zustand konnte nicht geladen werden.', error);
+            }
+        };
+
+        const persistState = () => {
+            if (isMockupPreview) return;
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                    ingredients: state.ingredients,
+                    portions: state.portions,
+                    lastUsedAmounts: state.lastUsedAmounts,
+                    viewMode: currentMode
+                }));
+            } catch (error) {
+                console.warn('Zustand konnte nicht gespeichert werden.', error);
+            }
+        };
+
+        // --- 3. VIEW TOGGLE LOGIK ---
+        window.toggleViewMode = () => {
+            setViewMode(currentMode === 'desktop' ? 'mobile' : 'desktop');
+        };
+
+        window.setViewMode = (mode) => {
+            currentMode = mode === 'mobile' ? 'mobile' : 'desktop';
+            document.body.className = `text-gray-800 font-sans view-${currentMode}${isMockupPreview ? ' mockup-preview-mode' : ''}`;
+
+            const knob = document.getElementById('toggle-knob');
+            const icon = document.getElementById('view-icon');
+            const textMobile = document.getElementById('view-text-mobile');
+            const textDesktop = document.getElementById('view-text-desktop');
+
+            if (currentMode === 'desktop') {
+                knob.classList.remove('translate-x-16');
+                knob.classList.add('translate-x-0');
+                icon.className = 'fa-solid fa-desktop text-primary text-[11px]';
+                textDesktop.classList.remove('opacity-0');
+                textMobile.classList.add('opacity-0');
+            } else {
+                knob.classList.remove('translate-x-0');
+                knob.classList.add('translate-x-16');
+                icon.className = 'fa-solid fa-mobile text-primary text-[11px]';
+                textMobile.classList.remove('opacity-0');
+                textDesktop.classList.add('opacity-0');
+            }
+
+            if (currentMode === 'desktop') {
+                closeMobileSearchModal({ restoreFocus: false });
+            } else {
+                closeSearch('desktop');
+            }
+
+            persistState();
+        };
+
+        // --- 4. LOGIK & BERECHNUNG ---
+        const getFoodById = (id) => foodDatabase.find(f => f.id === parseInt(id, 10));
+
+        const calculateTotals = () => {
+            const totals = { weight: 0 };
+            nutrientsConfig.forEach(n => totals[n.id] = 0);
+
+            state.ingredients.forEach(item => {
+                const food = getFoodById(item.id);
+                if (!food) return;
+
+                const factor = item.amount / 100;
+                totals.weight += item.amount;
+                nutrientsConfig.forEach(n => totals[n.id] += food[n.id] * factor);
+            });
+            return totals;
+        };
+
+        const getExistingIngredient = (foodId) => state.ingredients.find(i => i.id === foodId);
+
+        const getSearchResults = (query) => {
+            const terms = query.split(/\s+/).filter(Boolean);
+            const queryNoSpaces = terms.join('');
+
+            return foodDatabase.map(food => {
+                const nameClean = food.name.toLowerCase();
+                let score = 0;
+
+                if (nameClean.includes(query)) {
+                    score = 100;
+                    if (nameClean.startsWith(query)) score += 50;
+                } else if (terms.length && terms.every(term => nameClean.includes(term))) {
+                    score = 80;
+                } else if (queryNoSpaces) {
+                    let qIdx = 0;
+                    let tIdx = 0;
+                    while (qIdx < queryNoSpaces.length && tIdx < nameClean.length) {
+                        if (queryNoSpaces[qIdx] === nameClean[tIdx]) qIdx++;
+                        tIdx++;
+                    }
+                    if (qIdx === queryNoSpaces.length) score = 40;
+                }
+
+                return { ...food, _searchScore: score };
+            })
+            .filter(food => food._searchScore > 0)
+            .sort((a, b) => {
+                if (b._searchScore !== a._searchScore) return b._searchScore - a._searchScore;
+                return a.name.localeCompare(b.name, 'de');
+            })
+            .slice(0, 20);
+        };
+
+        const escapeHtml = (value) => String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const formatNutrientCardLabel = (label) => String(label).replace(/ß/g, 'ẞ').toLocaleUpperCase('de-DE');
+        const getNutrientCardLabel = (nutrient) => formatNutrientCardLabel(nutrient.label);
+        const getNutrientCardLabelClass = (nutrient) => nutrient.cardLabelClass || 'block min-w-0 truncate';
+
+        const getFoodDetailsCardHtml = (food) => nutrientsConfig.map(n => `
+            <div class="${n.spanClass} p-3 rounded-xl border flex flex-col items-center justify-center text-center ${n.theme.bg} ${n.theme.border}">
+                <div class="flex items-center justify-center gap-1.5 text-xs text-gray-500 mb-1 font-medium tracking-wide">
+                    <i class="fa-solid ${n.theme.icon} opacity-70"></i>
+                    <span class="${getNutrientCardLabelClass(n)}">${getNutrientCardLabel(n)}</span>
+                </div>
+                <div class="${n.theme.text} font-bold text-xl flex items-baseline gap-1">
+                    ${Number(food[n.id]).toFixed(n.decimals)}
+                    <span class="text-xs font-normal opacity-70">${n.unit}</span>
+                </div>
+            </div>
+        `).join('');
+
+        window.openFoodDetailsModal = (foodId, triggerElement = null) => {
+            const food = getFoodById(foodId);
+            if (!food) return;
+
+            lastFoodDetailsTrigger = triggerElement || document.activeElement;
+            elements.foodDetailsTitle.textContent = food.name;
+            elements.foodDetailsCategory.textContent = food.category;
+            const existing = getExistingIngredient(foodId);
+            elements.foodDetailsExisting.innerHTML = existing
+                ? `<span class="inline-flex items-center gap-2 text-primary font-medium"><i class="fa-solid fa-circle-check"></i>Im Rezept mit ${existing.amount} g</span>`
+                : '<span class="text-gray-400">Noch nicht im Rezept</span>';
+            elements.foodDetailsGrid.innerHTML = getFoodDetailsCardHtml(food);
+            elements.foodDetailsAddBtn.onclick = () => {
+                closeFoodDetailsModal({ restoreFocus: false });
+                openAmountModal(foodId, triggerElement || elements.foodDetailsAddBtn);
+            };
+            elements.foodDetailsModal.classList.remove('hidden');
+            setTimeout(() => elements.foodDetailsAddBtn.focus(), 30);
+        };
+
+        window.closeFoodDetailsModal = ({ restoreFocus = true } = {}) => {
+            elements.foodDetailsModal.classList.add('hidden');
+            if (restoreFocus && lastFoodDetailsTrigger && typeof lastFoodDetailsTrigger.focus === 'function') {
+                lastFoodDetailsTrigger.focus();
+            }
+        };
+
+        // --- 5. UI RENDERING ---
+        const elements = {
+            searchInput: document.getElementById('search-input'),
+            searchResults: document.getElementById('search-results'),
+            mobileSearchModal: document.getElementById('mobile-search-modal'),
+            mobileSearchInput: document.getElementById('mobile-search-input'),
+            mobileSearchResults: document.getElementById('mobile-search-results'),
+            openMobileSearchBtn: document.getElementById('open-mobile-search-btn'),
+            ingredientsList: document.getElementById('ingredients-list'),
+            emptyState: document.getElementById('empty-state'),
+            ingredientCount: document.getElementById('ingredient-count'),
+            portionsInput: document.getElementById('portions-input'),
+            totalGrid: document.getElementById('total-results-grid'),
+            portionGrid: document.getElementById('portion-results-grid'),
+            totalWeight: document.getElementById('total-weight-display'),
+            portionWeight: document.getElementById('portion-weight-display'),
+            actionFeedback: document.getElementById('action-feedback'),
+            clearAllBtn: document.getElementById('clear-all-btn'),
+            dbSortAlphaBtn: document.getElementById('db-sort-alpha-btn'),
+            dbSortPheBtn: document.getElementById('db-sort-phe-btn'),
+            amountModal: document.getElementById('amount-modal'),
+            amountModalInput: document.getElementById('amount-modal-input'),
+            amountModalFoodName: document.getElementById('amount-modal-food-name'),
+            amountQuickButtons: document.getElementById('amount-quick-buttons'),
+            amountModalHint: document.getElementById('amount-modal-hint'),
+            foodDetailsModal: document.getElementById('food-details-modal'),
+            foodDetailsTitle: document.getElementById('food-details-title'),
+            foodDetailsCategory: document.getElementById('food-details-category'),
+            foodDetailsExisting: document.getElementById('food-details-existing'),
+            foodDetailsGrid: document.getElementById('food-details-grid'),
+            foodDetailsAddBtn: document.getElementById('food-details-add-btn'),
+            exportModal: document.getElementById('export-modal'),
+            clearAllConfirmModal: document.getElementById('clear-all-confirm-modal'),
+            mockupModal: document.getElementById('mockup-modal'),
+            mockupIframe: document.getElementById('mockup-iframe'),
+            openMockupBtn: document.getElementById('open-mockup-btn'),
+            exportDocxBtn: document.getElementById('export-docx-btn'),
+            exportRecipeNameInput: document.getElementById('export-recipe-name-input'),
+            exportFormatInputs: Array.from(document.querySelectorAll('input[name="export-format"]')),
+            confirmExportBtn: document.getElementById('confirm-export-btn'),
+            confirmClearAllBtn: document.getElementById('confirm-clear-all-btn')
+        };
+
+        const generateResultCards = (totals, divisor = 1) => {
+            return nutrientsConfig.map(n => {
+                const value = (totals[n.id] / divisor);
+
+                return `
+                    <div class="${n.spanClass} p-2 sm:p-3 md:p-4 rounded-xl border flex flex-col items-center justify-center text-center ${n.theme.bg} ${n.theme.border} transition-all">
+                        <div class="flex items-center justify-center gap-1 sm:gap-1.5 text-[9px] sm:text-xs text-gray-500 mb-1 font-medium tracking-tight sm:tracking-wide">
+                            <i class="fa-solid ${n.theme.icon} opacity-70"></i>
+                            <span class="${getNutrientCardLabelClass(n)}">${getNutrientCardLabel(n)}</span>
+                        </div>
+                        <div class="${n.theme.text} font-bold text-lg sm:text-xl md:text-2xl flex items-baseline gap-1">
+                            ${value.toFixed(n.decimals)}
+                            <span class="text-[10px] sm:text-xs font-normal opacity-70">${n.unit}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        };
+
+        const hideActionFeedback = () => {
+            clearTimeout(actionFeedbackTimer);
+            elements.actionFeedback.innerHTML = '';
+            elements.actionFeedback.className = 'hidden mb-6 rounded-xl border px-4 py-3 text-sm text-gray-700';
+        };
+
+        const showActionFeedback = ({ message, undo = false, duration = 5000 }) => {
+            clearTimeout(actionFeedbackTimer);
+            elements.actionFeedback.className = 'mb-6 rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-gray-700 flex flex-wrap items-center justify-between gap-3';
+            elements.actionFeedback.innerHTML = `
+                <span>${message}</span>
+                ${undo ? '<button onclick="undoLastAction()" class="text-sm font-semibold text-primary hover:underline">Rückgängig</button>' : ''}
+            `;
+
+            if (duration > 0) {
+                actionFeedbackTimer = setTimeout(() => {
+                    if (undo) state.undoPayload = null;
+                    hideActionFeedback();
+                }, duration);
+            }
+        };
+
+        const renderQuickAmountButtons = (currentValue = null) => {
+            const foodId = state.pendingFoodId;
+            const lastUsedAmount = foodId ? state.lastUsedAmounts[String(foodId)] : null;
+            const values = [...QUICK_AMOUNTS];
+
+            if (Number.isFinite(currentValue) && currentValue > 0 && !values.includes(currentValue)) values.push(currentValue);
+            if (Number.isFinite(lastUsedAmount) && lastUsedAmount > 0 && !values.includes(lastUsedAmount)) values.push(lastUsedAmount);
+
+            values.sort((a, b) => a - b);
+            elements.amountQuickButtons.innerHTML = values.map(value => `
+                <button
+                    type="button"
+                    onclick="setAmountFromChip(${value})"
+                    class="quick-amount-btn px-3 py-1.5 rounded-full border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:border-primary/30 hover:text-primary transition-colors ${Number(currentValue) === value ? 'active' : ''}"
+                >${value} g</button>
+            `).join('');
+
+            if (Number.isFinite(lastUsedAmount) && lastUsedAmount > 0) {
+                elements.amountModalHint.textContent = `Zuletzt für diese Zutat verwendet: ${lastUsedAmount} g`;
+            } else {
+                elements.amountModalHint.textContent = 'Schnellmengen können direkt übernommen werden.';
+            }
+        };
+
+        const getSearchElements = (context = 'desktop') => {
+            if (context === 'mobile') {
+                return {
+                    input: elements.mobileSearchInput,
+                    results: elements.mobileSearchResults
+                };
+            }
+            return {
+                input: elements.searchInput,
+                results: elements.searchResults
+            };
+        };
+
+        const isMobileSearchModalOpen = () => !!elements.mobileSearchModal && !elements.mobileSearchModal.classList.contains('hidden');
+
+        const clearSearchInputs = () => {
+            if (elements.searchInput) elements.searchInput.value = '';
+            if (elements.mobileSearchInput) elements.mobileSearchInput.value = '';
+        };
+
+        const focusSearchControl = () => {
+            if (isMobileSearchModalOpen() && elements.mobileSearchInput) {
+                elements.mobileSearchInput.focus();
+                return;
+            }
+            if (currentMode === 'mobile' && elements.openMobileSearchBtn) {
+                elements.openMobileSearchBtn.focus();
+                return;
+            }
+            elements.searchInput?.focus();
+        };
+
+        const renderSearchResults = (results, context = 'desktop') => {
+            const { input, results: resultsContainer } = getSearchElements(context);
+            if (!input || !resultsContainer) return;
+
+            state.searchResultsData = results;
+            state.searchActiveIndex = results.length ? 0 : -1;
+
+            if (!results.length) {
+                resultsContainer.innerHTML = '<div class="p-4 text-center text-sm text-gray-500">Keine Lebensmittel gefunden.</div>';
+                resultsContainer.classList.remove('hidden');
+                input.setAttribute('aria-expanded', 'true');
+                return;
+            }
+
+            resultsContainer.innerHTML = results.map((food, index) => {
+                const existing = getExistingIngredient(food.id);
+                const existingBadge = existing
+                    ? `<span class="inline-flex items-center" title="Bereits im Rezept" aria-label="Bereits im Rezept"><i class="fa-solid fa-circle-check text-primary"></i></span>`
+                    : '';
+
+                return `
+                    <button type="button" role="option" aria-selected="${index === 0 ? 'true' : 'false'}" data-index="${index}" onclick="selectSearchResult(${index}, '${context}', this)" class="search-result-item w-full text-left p-3 cursor-pointer flex justify-between items-center group transition-colors ${index === 0 ? 'active' : ''}">
+                        <div class="min-w-0">
+                            <div class="font-medium text-gray-800 group-hover:text-primary transition-colors truncate">${escapeHtml(food.name)}</div>
+                            <div class="text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                                <span>${food.phe} mg Phe / 100 g</span>
+                                <span>${escapeHtml(food.category)}</span>
+                                ${existingBadge}
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-plus text-gray-300 group-hover:text-primary transition-colors ml-3 shrink-0"></i>
+                    </button>
+                `;
+            }).join('');
+
+            resultsContainer.classList.remove('hidden');
+            input.setAttribute('aria-expanded', 'true');
+            setActiveSearchResult(state.searchActiveIndex, context);
+        };
+
+        const setActiveSearchResult = (index, context = 'desktop') => {
+            const { results: resultsContainer } = getSearchElements(context);
+            if (!resultsContainer) return;
+
+            const items = Array.from(resultsContainer.querySelectorAll('.search-result-item'));
+            items.forEach((item, itemIndex) => {
+                const isActive = itemIndex === index;
+                item.classList.toggle('active', isActive);
+                item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                if (isActive) item.scrollIntoView({ block: 'nearest' });
+            });
+            state.searchActiveIndex = index;
+        };
+
+        const updateUI = () => {
+            const hasIngredients = state.ingredients.length > 0;
+            elements.emptyState.style.display = hasIngredients ? 'none' : 'block';
+            elements.ingredientCount.textContent = state.ingredients.length;
+            elements.clearAllBtn.classList.toggle('hidden', !hasIngredients);
+
+            const ingredientsHTML = state.ingredients.map((item, index) => {
+                const food = getFoodById(item.id);
+                if (!food) return '';
+                const itemPhe = (food.phe / 100 * item.amount).toFixed(0);
+
+                return `
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-gray-50 border border-gray-100 rounded-xl group hover:bg-white hover:shadow-sm transition-all gap-3">
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-800">${escapeHtml(food.name)}</div>
+                            <div class="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                                <span><i class="fa-solid fa-dna text-purple-400 mr-1"></i>${itemPhe} mg Phe gesamt</span>
+                                <span class="hidden sm:inline">&bull;</span>
+                                <span>${food.phe} mg/100 g</span>
+                                <span>${escapeHtml(food.category)}</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 sm:gap-3 self-end sm:self-auto">
+                            <div class="ingredient-mobile-step items-center bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden shrink-0">
+                                <button onclick="stepIngredientAmount(${index}, -1)" class="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors" aria-label="Menge um 1 Gramm verringern">
+                                    <i class="fa-solid fa-minus text-xs"></i>
+                                </button>
+                                <input type="number" min="0" value="${item.amount}" onchange="updateIngredientAmount(${index}, this.value)" class="ingredient-amount-input w-14 h-10 font-semibold text-gray-800 focus:outline-none border-x border-gray-200 bg-white" aria-label="Menge in Gramm">
+                                <button onclick="stepIngredientAmount(${index}, 1)" class="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors" aria-label="Menge um 1 Gramm erhöhen">
+                                    <i class="fa-solid fa-plus text-xs"></i>
+                                </button>
+                            </div>
+                            <div class="ingredient-desktop-amount relative">
+                                <input type="number" min="0" value="${item.amount}" onchange="updateIngredientAmount(${index}, this.value)" class="ingredient-amount-input w-28 sm:w-24 py-2 border border-gray-200 rounded-lg outline-none font-semibold text-gray-700 bg-white">
+                                <span class="absolute right-3 top-2.5 text-gray-400 text-sm pointer-events-none">g</span>
+                            </div>
+                            <button onclick="removeIngredient(${index})" class="text-gray-400 hover:text-violet-500 w-8 h-8 rounded-lg hover:bg-violet-50 flex items-center justify-center transition-colors" aria-label="Zutat entfernen">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            Array.from(elements.ingredientsList.children).forEach(child => {
+                if (child.id !== 'empty-state') child.remove();
+            });
+            if (hasIngredients) elements.ingredientsList.insertAdjacentHTML('beforeend', ingredientsHTML);
+
+            const totals = calculateTotals();
+            elements.totalWeight.textContent = `${totals.weight.toFixed(0)} g gesamt`;
+            elements.portionWeight.textContent = `${(totals.weight / state.portions).toFixed(0)} g`;
+
+            elements.totalGrid.innerHTML = generateResultCards(totals, 1);
+            elements.portionGrid.innerHTML = generateResultCards(totals, state.portions);
+            elements.portionsInput.value = state.portions;
+
+            persistState();
+        };
+
+        // --- 6. INTERAKTIONEN ---
+        window.setAmountFromChip = (amount) => {
+            elements.amountModalInput.value = amount;
+            renderQuickAmountButtons(Number(amount));
+            elements.amountModalInput.focus();
+        };
+
+        window.updatePortions = (change) => {
+            const newVal = parseInt(state.portions, 10) + change;
+            if (newVal >= 1) {
+                state.portions = newVal;
+                updateUI();
+            }
+        };
+
+        window.setPortions = (val) => {
+            const parsed = parseInt(val, 10);
+            if (!isNaN(parsed) && parsed >= 1) {
+                state.portions = parsed;
+                updateUI();
+            } else {
+                elements.portionsInput.value = state.portions;
+            }
+        };
+
+        window.openAmountModal = (foodId, triggerElement = null) => {
+            const food = getFoodById(foodId);
+            if (!food) return;
+
+            state.pendingFoodId = foodId;
+            lastAmountModalTrigger = triggerElement || document.activeElement;
+            elements.amountModalFoodName.textContent = food.name;
+
+            const existing = getExistingIngredient(foodId);
+            const suggestedAmount = existing?.amount || state.lastUsedAmounts[String(foodId)] || 100;
+            elements.amountModalInput.value = suggestedAmount;
+            renderQuickAmountButtons(Number(suggestedAmount));
+            elements.amountModal.classList.remove('hidden');
+            setTimeout(() => {
+                elements.amountModalInput.focus();
+                elements.amountModalInput.select();
+            }, 50);
+        };
+
+        window.closeAmountModal = ({ restoreFocus = true } = {}) => {
+            elements.amountModal.classList.add('hidden');
+            state.pendingFoodId = null;
+            if (restoreFocus && lastAmountModalTrigger && typeof lastAmountModalTrigger.focus === 'function') {
+                lastAmountModalTrigger.focus();
+            }
+        };
+
+        window.confirmAmount = () => {
+            if (!state.pendingFoodId) return;
+            const amount = parseFloat(elements.amountModalInput.value);
+            if (isNaN(amount) || amount <= 0) {
+                showActionFeedback({ message: 'Bitte eine Menge größer als 0 g eingeben.', undo: false, duration: 2500 });
+                elements.amountModalInput.focus();
+                elements.amountModalInput.select();
+                return;
+            }
+
+            const food = getFoodById(state.pendingFoodId);
+            const existingIndex = state.ingredients.findIndex(i => i.id === state.pendingFoodId);
+            if (existingIndex >= 0) state.ingredients[existingIndex].amount = amount;
+            else state.ingredients.push({ id: state.pendingFoodId, amount });
+
+            state.lastUsedAmounts[String(state.pendingFoodId)] = amount;
+            state.undoPayload = null;
+            hideActionFeedback();
+            clearSearchInputs();
+            closeSearch('desktop');
+            closeSearch('mobile');
+            closeAmountModal({ restoreFocus: false });
+            if (isMobileSearchModalOpen()) closeMobileSearchModal({ restoreFocus: false });
+
+            const dbModal = document.getElementById('db-modal');
+            if (!dbModal.classList.contains('hidden')) toggleDatabaseModal(false);
+
+            updateUI();
+            showActionFeedback({ message: `${escapeHtml(food.name)} mit ${amount} g übernommen.`, undo: false, duration: 2200 });
+            focusSearchControl();
+        };
+
+        window.removeIngredient = (index) => {
+            const removed = state.ingredients[index];
+            if (!removed) return;
+            const food = getFoodById(removed.id);
+            state.undoPayload = {
+                type: 'remove-one',
+                ingredient: { ...removed },
+                index
+            };
+            state.ingredients.splice(index, 1);
+            updateUI();
+            showActionFeedback({ message: `${escapeHtml(food?.name || 'Zutat')} entfernt.`, undo: true });
+        };
+
+        const performClearAllIngredients = () => {
+            state.undoPayload = {
+                type: 'clear-all',
+                ingredients: state.ingredients.map(item => ({ ...item })),
+                portions: state.portions
+            };
+            state.ingredients = [];
+            state.portions = 1;
+            updateUI();
+            showActionFeedback({ message: 'Alle Zutaten wurden entfernt.', undo: true });
+        };
+
+        window.openClearAllConfirmModal = (triggerElement = null) => {
+            if (!state.ingredients.length || !elements.clearAllConfirmModal) return;
+            lastClearAllTrigger = triggerElement || document.activeElement;
+            elements.clearAllConfirmModal.classList.remove('hidden');
+            setTimeout(() => elements.confirmClearAllBtn?.focus(), 30);
+        };
+
+        window.closeClearAllConfirmModal = ({ restoreFocus = true } = {}) => {
+            if (!elements.clearAllConfirmModal) return;
+            elements.clearAllConfirmModal.classList.add('hidden');
+            if (restoreFocus && lastClearAllTrigger && typeof lastClearAllTrigger.focus === 'function') {
+                lastClearAllTrigger.focus();
+            }
+        };
+
+        window.confirmClearAllIngredients = () => {
+            if (!state.ingredients.length) {
+                closeClearAllConfirmModal({ restoreFocus: false });
+                return;
+            }
+            performClearAllIngredients();
+            closeClearAllConfirmModal({ restoreFocus: false });
+        };
+
+        window.clearAllIngredients = () => {
+            openClearAllConfirmModal();
+        };
+
+        window.openMobileSearchModal = (triggerElement = null) => {
+            if (!elements.mobileSearchModal || !elements.mobileSearchInput) return;
+            lastMobileSearchTrigger = triggerElement || document.activeElement;
+            elements.mobileSearchInput.value = elements.mobileSearchInput.value || elements.searchInput?.value || '';
+            elements.mobileSearchModal.classList.remove('hidden');
+
+            setTimeout(() => {
+                elements.mobileSearchInput.focus();
+                elements.mobileSearchInput.select();
+                const query = elements.mobileSearchInput.value.toLowerCase().trim();
+                if (query.length > 0) renderSearchResults(getSearchResults(query), 'mobile');
+            }, 40);
+        };
+
+        window.closeMobileSearchModal = ({ restoreFocus = true } = {}) => {
+            if (!elements.mobileSearchModal) return;
+            elements.mobileSearchModal.classList.add('hidden');
+            if (elements.mobileSearchInput) elements.mobileSearchInput.value = '';
+            closeSearch('mobile');
+            if (restoreFocus && lastMobileSearchTrigger && typeof lastMobileSearchTrigger.focus === 'function') {
+                lastMobileSearchTrigger.focus();
+            }
+        };
+
+        const getMockupPreviewUrl = () => {
+            const previewUrl = new URL(window.location.href);
+            previewUrl.searchParams.set(MOCKUP_PREVIEW_QUERY_PARAM, '1');
+            return previewUrl.toString();
+        };
+
+        const syncMockupIframe = () => {
+            if (!elements.mockupIframe) return;
+            const previewUrl = getMockupPreviewUrl();
+            if (elements.mockupIframe.dataset.src === previewUrl) return;
+            elements.mockupIframe.src = previewUrl;
+            elements.mockupIframe.dataset.src = previewUrl;
+        };
+
+        window.openMockupModal = () => {
+            if (!elements.mockupModal || isMockupPreview) return;
+            lastMockupTrigger = document.activeElement;
+            syncMockupIframe();
+            elements.mockupModal.classList.remove('hidden');
+        };
+
+        window.closeMockupModal = ({ restoreFocus = true } = {}) => {
+            if (!elements.mockupModal) return;
+            elements.mockupModal.classList.add('hidden');
+            if (restoreFocus && lastMockupTrigger && typeof lastMockupTrigger.focus === 'function') {
+                lastMockupTrigger.focus();
+            }
+        };
+
+        window.undoLastAction = () => {
+            if (!state.undoPayload) return;
+            if (state.undoPayload.type === 'remove-one') {
+                state.ingredients.splice(state.undoPayload.index, 0, state.undoPayload.ingredient);
+            } else if (state.undoPayload.type === 'clear-all') {
+                state.ingredients = state.undoPayload.ingredients.map(item => ({ ...item }));
+                state.portions = Number.isInteger(state.undoPayload.portions) && state.undoPayload.portions >= 1 ? state.undoPayload.portions : 1;
+            }
+            state.undoPayload = null;
+            hideActionFeedback();
+            updateUI();
+        };
+
+        window.updateIngredientAmount = (index, value) => {
+            const amount = parseFloat(value);
+            if (isNaN(amount) || amount < 0) {
+                showActionFeedback({ message: 'Ungültige Menge. Bitte nur Werte ab 0 g verwenden.', undo: false, duration: 2500 });
+                updateUI();
+                return;
+            }
+            if (amount === 0) {
+                removeIngredient(index);
+                return;
+            }
+            state.ingredients[index].amount = amount;
+            state.lastUsedAmounts[String(state.ingredients[index].id)] = amount;
+            updateUI();
+        };
+
+        window.stepIngredientAmount = (index, delta) => {
+            const ingredient = state.ingredients[index];
+            if (!ingredient) return;
+            const nextAmount = Math.max(1, Math.round((ingredient.amount + delta) * 100) / 100);
+            ingredient.amount = nextAmount;
+            state.lastUsedAmounts[String(ingredient.id)] = nextAmount;
+            updateUI();
+        };
+
+        const closeSearch = (context = 'desktop') => {
+            const { input, results: resultsContainer } = getSearchElements(context);
+            if (!input || !resultsContainer) return;
+
+            state.searchActiveIndex = -1;
+            state.searchResultsData = [];
+            resultsContainer.classList.add('hidden');
+            input.setAttribute('aria-expanded', 'false');
+        };
+
+        window.selectSearchResult = (index, context = 'desktop', triggerElement = null) => {
+            if (index < 0 || index >= state.searchResultsData.length) return;
+            const { input, results: resultsContainer } = getSearchElements(context);
+            const fallbackTrigger = triggerElement || resultsContainer?.querySelector(`[data-index="${index}"]`) || input;
+            openAmountModal(state.searchResultsData[index].id, fallbackTrigger);
+        };
+
+        const bindSearchEvents = (context = 'desktop') => {
+            const { input, results: resultsContainer } = getSearchElements(context);
+            if (!input || !resultsContainer) return;
+
+            input.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                if (query.length < 1) {
+                    closeSearch(context);
+                    return;
+                }
+                renderSearchResults(getSearchResults(query), context);
+            });
+
+            input.addEventListener('keydown', (e) => {
+                const resultsAvailable = !resultsContainer.classList.contains('hidden') && state.searchResultsData.length > 0;
+
+                if (e.key === 'ArrowDown' && resultsAvailable) {
+                    e.preventDefault();
+                    const nextIndex = state.searchActiveIndex < state.searchResultsData.length - 1 ? state.searchActiveIndex + 1 : 0;
+                    setActiveSearchResult(nextIndex, context);
+                } else if (e.key === 'ArrowUp' && resultsAvailable) {
+                    e.preventDefault();
+                    const nextIndex = state.searchActiveIndex > 0 ? state.searchActiveIndex - 1 : state.searchResultsData.length - 1;
+                    setActiveSearchResult(nextIndex, context);
+                } else if (e.key === 'Enter' && resultsAvailable) {
+                    e.preventDefault();
+                    selectSearchResult(state.searchActiveIndex >= 0 ? state.searchActiveIndex : 0, context);
+                } else if (e.key === 'Escape' && resultsAvailable) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeSearch(context);
+                }
+            });
+
+            resultsContainer.addEventListener('mousemove', (e) => {
+                const item = e.target.closest('.search-result-item');
+                if (!item) return;
+                const index = parseInt(item.dataset.index, 10);
+                if (!Number.isNaN(index) && index !== state.searchActiveIndex) setActiveSearchResult(index, context);
+            });
+        };
+
+        bindSearchEvents('desktop');
+        bindSearchEvents('mobile');
+
+        document.addEventListener('click', (e) => {
+            if (!elements.searchInput.contains(e.target) && !elements.searchResults.contains(e.target)) closeSearch('desktop');
+        });
+
+
+        const formatDocxNumber = (value, decimals = 0) => Number(value).toFixed(decimals).replace('.', ',');
+        const exportFontConfig = {
+            docx: 'Arial',
+            pdf: 'helvetica'
+        };
+
+        const sanitizeFileName = (value) => {
+            const forbiddenChars = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
+            let cleaned = '';
+
+            for (const char of String(value || '')) {
+                const code = char.charCodeAt(0);
+                if (forbiddenChars.has(char)) continue;
+                if (code <= 31) continue;
+                cleaned += char;
+            }
+
+            cleaned = cleaned.replace(/\s+/g, ' ').trim();
+            return cleaned || 'Rezept';
+        };
+
+        const buildExportFilename = (recipeName, extension) => `${sanitizeFileName(recipeName).replace(/\s+/g, '_')}.${extension}`;
+
+        const getSelectedExportFormat = () => elements.exportFormatInputs.find(input => input.checked)?.value || 'docx';
+
+        const setExportLoading = (isLoading) => {
+            if (!elements.confirmExportBtn) return;
+            const selectedFormat = getSelectedExportFormat().toUpperCase();
+            elements.confirmExportBtn.disabled = isLoading;
+            elements.confirmExportBtn.classList.toggle('opacity-70', isLoading);
+            elements.confirmExportBtn.classList.toggle('cursor-not-allowed', isLoading);
+            elements.confirmExportBtn.innerHTML = isLoading
+                ? `<i class="fa-solid fa-spinner fa-spin"></i> ${selectedFormat}-Export läuft`
+                : '<i class="fa-solid fa-file-export"></i> Exportieren';
+        };
+
+        window.openExportModal = (triggerElement = null) => {
+            if (!elements.exportModal || !elements.exportRecipeNameInput) {
+                showActionFeedback({ message: 'Das Export-Fenster ist nicht verfügbar.', undo: false, duration: 3500 });
+                return;
+            }
+            lastExportTrigger = triggerElement || document.activeElement;
+            elements.exportRecipeNameInput.value = 'Mein Rezept';
+            elements.exportFormatInputs.forEach(input => {
+                input.checked = input.value === 'docx';
+            });
+            elements.exportModal.classList.remove('hidden');
+            setExportLoading(false);
+            setTimeout(() => {
+                elements.exportRecipeNameInput.focus();
+                elements.exportRecipeNameInput.select();
+            }, 50);
+        };
+
+        window.closeExportModal = ({ restoreFocus = true } = {}) => {
+            if (!elements.exportModal) return;
+            elements.exportModal.classList.add('hidden');
+            setExportLoading(false);
+            if (restoreFocus && lastExportTrigger && typeof lastExportTrigger.focus === 'function') {
+                lastExportTrigger.focus();
+            }
+        };
+
+        const getDocxApi = () => window.docx || (typeof docx !== 'undefined' ? docx : null);
+        const getPdfApi = () => window.jspdf?.jsPDF || null;
+
+        const loadScriptOnce = (src) => new Promise((resolve, reject) => {
+            const existing = Array.from(document.scripts).find(script => script.src === src);
+            if (existing) {
+                if (existing.dataset.loaded === 'true') {
+                    resolve();
+                    return;
+                }
+                existing.addEventListener('load', () => resolve(), { once: true });
+                existing.addEventListener('error', () => reject(new Error(`Script konnte nicht geladen werden: ${src}`)), { once: true });
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', () => reject(new Error(`Script konnte nicht geladen werden: ${src}`)), { once: true });
+            document.head.appendChild(script);
+        });
+
+        const ensureDocxDependencies = async () => {
+            if (!getDocxApi()) {
+                await loadScriptOnce('https://unpkg.com/docx@9.5.1/dist/index.umd.cjs');
+            }
+            if (typeof window.saveAs !== 'function') {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
+            }
+            if (!getDocxApi()) {
+                throw new Error('DOCX-Bibliothek ist nicht verfügbar.');
+            }
+        };
+
+        const ensurePdfDependencies = async () => {
+            if (!getPdfApi()) {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+            }
+            if (typeof window.jspdf?.jsPDF?.API?.autoTable !== 'function') {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+            }
+            if (!getPdfApi() || typeof window.jspdf.jsPDF.API.autoTable !== 'function') {
+                throw new Error('PDF-Bibliothek ist nicht verfügbar.');
+            }
+        };
+
+        const triggerBlobDownload = (blob, filename) => {
+            if (typeof window.saveAs === 'function') {
+                window.saveAs(blob, filename);
+                return;
+            }
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        };
+
+        const createDocxTextRun = (docxApi, text, options = {}) => {
+            const { TextRun } = docxApi;
+            return new TextRun({
+                text,
+                font: exportFontConfig.docx,
+                ...options
+            });
+        };
+
+        const buildMetricCardsTable = (docxApi, totals, divisor = 1) => {
+            const { Table, TableRow, TableCell, Paragraph, WidthType, AlignmentType, BorderStyle, ShadingType } = docxApi;
+            const metricCards = getExportMetricCards(totals, divisor);
+
+            return new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({
+                        children: metricCards.map((card) => new TableCell({
+                            width: { size: 20, type: WidthType.PERCENTAGE },
+                            shading: { type: ShadingType.CLEAR, color: 'auto', fill: card.theme.fill },
+                            borders: {
+                                top: { style: BorderStyle.SINGLE, size: 8, color: card.theme.border },
+                                bottom: { style: BorderStyle.SINGLE, size: 8, color: card.theme.border },
+                                left: { style: BorderStyle.SINGLE, size: 8, color: card.theme.border },
+                                right: { style: BorderStyle.SINGLE, size: 8, color: card.theme.border }
+                            },
+                            margins: { top: 160, bottom: 160, left: 130, right: 130 },
+                            children: [
+                                new Paragraph({
+                                    alignment: AlignmentType.CENTER,
+                                    spacing: { after: 60 },
+                                    children: [
+                                        createDocxTextRun(docxApi, card.label, {
+                                            bold: true,
+                                            color: '6B7280',
+                                            size: 18
+                                        })
+                                    ]
+                                }),
+                                new Paragraph({
+                                    alignment: AlignmentType.CENTER,
+                                    children: [
+                                        createDocxTextRun(docxApi, card.value, {
+                                            bold: true,
+                                            color: card.theme.text,
+                                            size: 26
+                                        })
+                                    ]
+                                })
+                            ]
+                        }))
+                    })
+                ]
+            });
+        };
+
+        const buildIngredientsTable = (docxApi) => {
+            const { Table, TableRow, TableCell, Paragraph, WidthType, AlignmentType, BorderStyle } = docxApi;
+            const ingredientRows = getExportIngredientRows();
+
+            const headerCell = (label, width) => new TableCell({
+                width: { size: width, type: WidthType.PERCENTAGE },
+                shading: { fill: exportVisualConfig.tableHeaderFill },
+                margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [createDocxTextRun(docxApi, label, { bold: true, color: exportVisualConfig.tableHeaderText, size: 20 })] })]
+            });
+
+            const bodyCell = (value, width, alignment = AlignmentType.LEFT) => new TableCell({
+                width: { size: width, type: WidthType.PERCENTAGE },
+                margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                borders: {
+                    top: { style: BorderStyle.SINGLE, size: 6, color: exportVisualConfig.tableBorder },
+                    bottom: { style: BorderStyle.SINGLE, size: 6, color: exportVisualConfig.tableBorder },
+                    left: { style: BorderStyle.SINGLE, size: 6, color: exportVisualConfig.tableBorder },
+                    right: { style: BorderStyle.SINGLE, size: 6, color: exportVisualConfig.tableBorder }
+                },
+                children: [new Paragraph({ alignment, children: [createDocxTextRun(docxApi, value, { color: exportVisualConfig.titleColor, size: 21 })] })]
+            });
+
+            return new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({ children: [headerCell('Zutat', 56), headerCell('Menge', 18), headerCell('Phe gesamt', 26)] }),
+                    ...ingredientRows.map((item) => new TableRow({
+                        children: [
+                            bodyCell(item.name, 56, AlignmentType.LEFT),
+                            bodyCell(item.amount, 18, AlignmentType.CENTER),
+                            bodyCell(item.phe, 26, AlignmentType.CENTER)
+                        ]
+                    }))
+                ]
+            });
+        };
+
+        const buildExportDocument = (recipeName) => {
+            const docxApi = getDocxApi();
+            if (!docxApi) throw new Error('DOCX-Bibliothek ist nicht verfügbar.');
+
+            const { Document, Packer, Paragraph, HeadingLevel, AlignmentType } = docxApi;
+            const totals = calculateTotals();
+
+            const sectionHeading = (text) => new Paragraph({
+                heading: HeadingLevel.HEADING_1,
+                thematicBreak: false,
+                spacing: { before: 320, after: 180 },
+                children: [createDocxTextRun(docxApi, text, { bold: true, size: 28, color: exportVisualConfig.titleColor })]
+            });
+
+            const infoParagraph = (text) => new Paragraph({
+                spacing: { after: 140 },
+                children: [createDocxTextRun(docxApi, text, { color: exportVisualConfig.mutedColor, size: 21 })]
+            });
+
+            const doc = new Document({
+                styles: {
+                    default: {
+                        document: {
+                            run: {
+                                font: exportFontConfig.docx,
+                                size: 22,
+                                color: exportVisualConfig.titleColor
+                            }
+                        }
+                    }
+                },
+                sections: [{
+                    properties: {
+                        page: {
+                            margin: { top: 900, right: 900, bottom: 900, left: 900 }
+                        }
+                    },
+                    children: [
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { after: 260 },
+                            children: [createDocxTextRun(docxApi, recipeName, { bold: true, size: 34, color: exportVisualConfig.titleColor })]
+                        }),
+                        sectionHeading('Zutaten'),
+                        buildIngredientsTable(docxApi),
+                        sectionHeading('Nährwerte gesamt'),
+                        infoParagraph(`Gesamtgewicht: ${formatExportWeight(totals.weight)}`),
+                        buildMetricCardsTable(docxApi, totals, 1),
+                        sectionHeading('Portionen'),
+                        infoParagraph(`Anzahl Portionen: ${state.portions}   |   Gewicht pro Portion: ${formatExportWeight(totals.weight / state.portions)}`),
+                        buildMetricCardsTable(docxApi, totals, state.portions)
+                    ]
+                }]
+            });
+
+            return Packer.toBlob(doc);
+        };
+
+        const ensurePdfPageSpace = (doc, startY, neededHeight = 0) => {
+            const pageHeight = doc.internal.pageSize.getHeight();
+            if (startY + neededHeight <= pageHeight - exportVisualConfig.pdf.bottom) return startY;
+            doc.addPage();
+            return exportVisualConfig.pdf.top;
+        };
+
+        const drawPdfMetricCards = (doc, cards, startY) => {
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const contentWidth = pageWidth - exportVisualConfig.pdf.left - exportVisualConfig.pdf.right;
+            const cardWidth = (contentWidth - exportVisualConfig.pdf.cardGap * (cards.length - 1)) / cards.length;
+            const cardHeight = exportVisualConfig.pdf.cardHeight;
+
+            const y = ensurePdfPageSpace(doc, startY, cardHeight);
+
+            cards.forEach((card, index) => {
+                const x = exportVisualConfig.pdf.left + index * (cardWidth + exportVisualConfig.pdf.cardGap);
+                const fillColor = hexToRgb(card.theme.fill);
+                const borderColor = hexToRgb(card.theme.border);
+                const textColor = hexToRgb(card.theme.text);
+                const labelLines = doc.splitTextToSize(card.label, cardWidth - 6);
+
+                doc.setDrawColor(...borderColor);
+                doc.setFillColor(...fillColor);
+                doc.roundedRect(x, y, cardWidth, cardHeight, exportVisualConfig.pdf.cardRadius, exportVisualConfig.pdf.cardRadius, 'FD');
+
+                doc.setFont(exportFontConfig.pdf, 'bold');
+                doc.setFontSize(7.8);
+                doc.setTextColor(107, 114, 128);
+                doc.text(labelLines, x + cardWidth / 2, y + 6.5, { align: 'center', baseline: 'top' });
+
+                const valueY = y + 15.5 + Math.max(0, labelLines.length - 1) * 3;
+                doc.setFont(exportFontConfig.pdf, 'bold');
+                doc.setFontSize(10.8);
+                doc.setTextColor(...textColor);
+                doc.text(card.value, x + cardWidth / 2, valueY, { align: 'center', baseline: 'middle' });
+            });
+
+            doc.setTextColor(17, 24, 39);
+            return y + cardHeight;
+        };
+
+        const buildPdfDocument = (recipeName) => {
+            const jsPDF = getPdfApi();
+            if (!jsPDF) throw new Error('PDF-Bibliothek ist nicht verfügbar.');
+
+            const totals = calculateTotals();
+            const ingredientRows = getExportIngredientRows();
+            const totalMetricCards = getExportMetricCards(totals, 1);
+            const portionMetricCards = getExportMetricCards(totals, state.portions);
+            const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const contentWidth = pageWidth - exportVisualConfig.pdf.left - exportVisualConfig.pdf.right;
+
+            const addSectionTitle = (title, startY) => {
+                const y = ensurePdfPageSpace(doc, startY, 8);
+                doc.setFont(exportFontConfig.pdf, 'bold');
+                doc.setFontSize(14);
+                doc.setTextColor(...hexToRgb(exportVisualConfig.titleColor));
+                doc.text(title, exportVisualConfig.pdf.left, y);
+                return y + 4;
+            };
+
+            const addInfoLine = (value, startY) => {
+                const lines = doc.splitTextToSize(value, contentWidth);
+                const y = ensurePdfPageSpace(doc, startY, lines.length * 5);
+                doc.setFont(exportFontConfig.pdf, 'normal');
+                doc.setFontSize(10.5);
+                doc.setTextColor(...hexToRgb(exportVisualConfig.mutedColor));
+                doc.text(lines, exportVisualConfig.pdf.left, y);
+                doc.setTextColor(...hexToRgb(exportVisualConfig.titleColor));
+                return y + lines.length * 5;
+            };
+
+            doc.setFont(exportFontConfig.pdf, 'bold');
+            doc.setFontSize(18);
+            doc.setTextColor(...hexToRgb(exportVisualConfig.titleColor));
+            doc.text(recipeName, pageWidth / 2, exportVisualConfig.pdf.top, { align: 'center' });
+
+            let y = exportVisualConfig.pdf.top + 10;
+
+            y = addSectionTitle('Zutaten', y);
+            doc.autoTable({
+                startY: y,
+                head: [['Zutat', 'Menge', 'Phe gesamt']],
+                body: ingredientRows.map((item) => [item.name, item.amount, item.phe]),
+                styles: {
+                    font: exportFontConfig.pdf,
+                    fontSize: 10,
+                    cellPadding: 2.3,
+                    textColor: hexToRgb(exportVisualConfig.titleColor),
+                    lineColor: hexToRgb(exportVisualConfig.tableBorder),
+                    lineWidth: 0.2
+                },
+                headStyles: {
+                    font: exportFontConfig.pdf,
+                    fontStyle: 'bold',
+                    fillColor: hexToRgb(exportVisualConfig.tableHeaderFill),
+                    textColor: hexToRgb(exportVisualConfig.tableHeaderText)
+                },
+                columnStyles: {
+                    0: { cellWidth: 95 },
+                    1: { cellWidth: 30, halign: 'center' },
+                    2: { cellWidth: 45, halign: 'center' }
+                },
+                margin: { left: exportVisualConfig.pdf.left, right: exportVisualConfig.pdf.right }
+            });
+            y = (doc.lastAutoTable?.finalY || y) + exportVisualConfig.pdf.sectionGap;
+
+            y = addSectionTitle('Nährwerte gesamt', y);
+            y = addInfoLine(`Gesamtgewicht: ${formatExportWeight(totals.weight)}`, y + 2);
+            y = drawPdfMetricCards(doc, totalMetricCards, y + 1) + exportVisualConfig.pdf.sectionGap;
+
+            y = addSectionTitle('Portionen', y);
+            y = addInfoLine(`Anzahl Portionen: ${state.portions}   |   Gewicht pro Portion: ${formatExportWeight(totals.weight / state.portions)}`, y + 2);
+            drawPdfMetricCards(doc, portionMetricCards, y + 1);
+
+            return doc.output('blob');
+        };
+
+        const exportBuilders = {
+            docx: {
+                extension: 'docx',
+                successMessage: (recipeName) => `DOCX-Export für ${escapeHtml(recipeName)} wurde erstellt.`,
+                ensureDependencies: ensureDocxDependencies,
+                buildBlob: buildExportDocument
+            },
+            pdf: {
+                extension: 'pdf',
+                successMessage: (recipeName) => `PDF-Export für ${escapeHtml(recipeName)} wurde erstellt.`,
+                ensureDependencies: ensurePdfDependencies,
+                buildBlob: buildPdfDocument
+            }
+        };
+
+        window.confirmExport = async () => {
+            const recipeName = sanitizeFileName(elements.exportRecipeNameInput.value);
+            const selectedFormat = getSelectedExportFormat();
+            const exportConfig = exportBuilders[selectedFormat];
+
+            if (!state.ingredients.length) {
+                closeExportModal();
+                showActionFeedback({ message: 'Bitte zuerst mindestens eine Zutat hinzufügen.', undo: false, duration: 3000 });
+                return;
+            }
+
+            if (!exportConfig) {
+                showActionFeedback({ message: 'Bitte ein gültiges Export-Format wählen.', undo: false, duration: 3000 });
+                return;
+            }
+
+            try {
+                setExportLoading(true);
+                await exportConfig.ensureDependencies();
+                const blob = await exportConfig.buildBlob(recipeName);
+                const filename = buildExportFilename(recipeName, exportConfig.extension);
+                triggerBlobDownload(blob, filename);
+                closeExportModal();
+                showActionFeedback({ message: exportConfig.successMessage(recipeName), undo: false, duration: 3200 });
+            } catch (error) {
+                console.error(`${selectedFormat.toUpperCase()}-Export fehlgeschlagen.`, error);
+                setExportLoading(false);
+                showActionFeedback({ message: `Der ${selectedFormat.toUpperCase()}-Export konnte nicht erstellt werden.`, undo: false, duration: 4000 });
+            }
+        };
+
+        // --- 7. DATENBANK MODAL ---
+        const modalElements = {
+            modal: document.getElementById('db-modal'),
+            modalContent: document.getElementById('db-modal-content'),
+            detailsModal: document.getElementById('food-details-modal')
+        };
+
+        const getDatabaseSortButtonClass = (isActive) => [
+            'db-sort-btn px-4 py-2 rounded-xl border transition-all font-medium focus:outline-none focus:ring-2 focus:ring-primary/20',
+            isActive
+                ? 'bg-primary text-white border-primary shadow-sm'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-primary/30 hover:text-primary'
+        ].join(' ');
+
+        const syncDatabaseSortButtons = () => {
+            if (elements.dbSortAlphaBtn) elements.dbSortAlphaBtn.className = getDatabaseSortButtonClass(state.dbSort === 'alpha');
+            if (elements.dbSortPheBtn) elements.dbSortPheBtn.className = getDatabaseSortButtonClass(state.dbSort === 'phe');
+        };
+
+        const getSortedDatabaseItems = (category) => {
+            const items = foodDatabase.filter(food => food.category === category);
+            return items.sort((a, b) => {
+                if (state.dbSort === 'phe') {
+                    return (a.phe - b.phe) || a.name.localeCompare(b.name, 'de');
+                }
+                return a.name.localeCompare(b.name, 'de') || (a.phe - b.phe);
+            });
+        };
+
+        window.toggleDatabaseModal = () => {
+            const willOpen = modalElements.modal.classList.contains('hidden');
+            modalElements.modal.classList.toggle('hidden');
+            if (willOpen) {
+                dbExpandedCategories.clear();
+                renderDatabaseModal();
+                setTimeout(() => {
+                    const activeButton = state.dbSort === 'phe' ? elements.dbSortPheBtn : elements.dbSortAlphaBtn;
+                    activeButton?.focus();
+                }, 30);
+            }
+        };
+
+        window.setDatabaseSort = (sort) => {
+            if (!['alpha', 'phe'].includes(sort) || state.dbSort === sort) return;
+            state.dbSort = sort;
+            renderDatabaseModal();
+        };
+
+        window.toggleDbCategory = (encodedCategory) => {
+            const category = decodeURIComponent(encodedCategory);
+            if (dbExpandedCategories.has(category)) {
+                dbExpandedCategories.delete(category);
+            } else {
+                dbExpandedCategories.add(category);
+            }
+            renderDatabaseModal();
+        };
+
+        const renderDatabaseModal = () => {
+            syncDatabaseSortButtons();
+
+            const html = foodCategories.map(category => {
+                const theme = getCategoryTheme(category);
+                const items = getSortedDatabaseItems(category);
+
+                if (!items.length) return '';
+
+                const isExpanded = dbExpandedCategories.has(category);
+                const encodedCategory = encodeURIComponent(category);
+                const itemsHtml = items.map(food => {
+                    const existing = getExistingIngredient(food.id);
+                    return `
+                        <div class="w-full p-3 border rounded-xl transition-all flex items-stretch gap-3 group db-card-item" style="--db-accent: ${theme.accent}; --db-accent-soft: ${theme.softStrong}; border-color: ${theme.border}; background: linear-gradient(135deg, ${theme.soft} 0%, #ffffff 52%);">
+                            <button type="button" onclick="openFoodDetailsModal(${food.id}, this)" class="flex-1 min-w-0 text-left">
+                                <div class="db-card-name font-medium text-gray-800 transition-colors">${escapeHtml(food.name)}</div>
+                                <div class="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
+                                    <span><i class="fa-solid fa-dna mr-1 opacity-80" style="color: ${theme.accent};"></i>${food.phe} mg Phe / 100 g</span>
+                                    ${existing ? `<span class="font-medium" style="color: ${theme.text};"><i class="fa-solid fa-circle-check mr-1"></i>Im Rezept mit ${existing.amount} g</span>` : ''}
+                                </div>
+                            </button>
+                            <button type="button" onclick="openAmountModal(${food.id}, this)" class="w-10 h-10 self-center rounded-full flex items-center justify-center transition-colors shadow-sm shrink-0 db-card-add-btn" style="--db-accent: ${theme.accent}; --db-accent-soft: ${theme.softStrong};" aria-label="${escapeHtml(food.name)} hinzufügen">
+                                <i class="fa-solid fa-plus"></i>
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="mb-5 last:mb-0 db-category-section">
+                        <button type="button" onclick="toggleDbCategory('${encodedCategory}')" class="w-full rounded-2xl border px-4 py-3 flex items-center justify-between gap-3 text-left transition-all hover:shadow-sm" style="background: ${theme.soft}; border-color: ${theme.border};">
+                            <span class="min-w-0 flex items-center gap-2">
+                                <span class="w-8 h-8 rounded-xl inline-flex items-center justify-center shrink-0" style="background: ${theme.softStrong}; color: ${theme.text};">
+                                    <i class="fa-solid fa-tags"></i>
+                                </span>
+                                <span class="db-category-name text-base font-bold truncate" style="color: ${theme.text};">${escapeHtml(category)}</span>
+                            </span>
+                            <span class="flex items-center gap-2 shrink-0">
+                                <span class="text-xs font-semibold bg-white px-2.5 py-1 rounded-full border" style="color: ${theme.text}; border-color: ${theme.borderStrong};">${items.length}</span>
+                                <span class="w-8 h-8 rounded-xl inline-flex items-center justify-center bg-white border transition-transform ${isExpanded ? 'rotate-180' : ''}" style="color: ${theme.text}; border-color: ${theme.borderStrong};">
+                                    <i class="fa-solid fa-chevron-down text-xs"></i>
+                                </span>
+                            </span>
+                        </button>
+                        <div class="${isExpanded ? 'db-grid mt-4' : 'hidden'}">
+                            ${itemsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            modalElements.modalContent.innerHTML = html || '<div class="text-sm text-gray-500 bg-white border border-gray-100 rounded-xl p-4">Keine Einträge gefunden.</div>';
+        };
+
+        elements.dbSortAlphaBtn?.addEventListener('click', () => {
+            setDatabaseSort('alpha');
+        });
+
+        elements.dbSortPheBtn?.addEventListener('click', () => {
+            setDatabaseSort('phe');
+        });
+
+        modalElements.modal.addEventListener('click', (e) => {
+            if (e.target === modalElements.modal) toggleDatabaseModal(false);
+        });
+
+        elements.amountModal.addEventListener('click', (e) => {
+            if (e.target === elements.amountModal) closeAmountModal();
+        });
+
+        elements.foodDetailsModal.addEventListener('click', (e) => {
+            if (e.target === elements.foodDetailsModal) closeFoodDetailsModal();
+        });
+
+        if (elements.exportModal) {
+            elements.exportModal.addEventListener('click', (e) => {
+                if (e.target === elements.exportModal) closeExportModal();
+            });
+        }
+
+        if (elements.clearAllConfirmModal) {
+            elements.clearAllConfirmModal.addEventListener('click', (e) => {
+                if (e.target === elements.clearAllConfirmModal) closeClearAllConfirmModal();
+            });
+        }
+
+        if (elements.mockupModal) {
+            elements.mockupModal.addEventListener('click', (e) => {
+                if (e.target === elements.mockupModal) closeMockupModal();
+            });
+        }
+
+        if (elements.mobileSearchModal) {
+            elements.mobileSearchModal.addEventListener('click', (e) => {
+                if (e.target === elements.mobileSearchModal) closeMobileSearchModal();
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (elements.mockupModal && !elements.mockupModal.classList.contains('hidden')) {
+                closeMockupModal();
+                return;
+            }
+            if (elements.clearAllConfirmModal && !elements.clearAllConfirmModal.classList.contains('hidden')) {
+                closeClearAllConfirmModal();
+                return;
+            }
+            if (elements.exportModal && !elements.exportModal.classList.contains('hidden')) {
+                closeExportModal();
+                return;
+            }
+            if (!elements.foodDetailsModal.classList.contains('hidden')) {
+                closeFoodDetailsModal();
+                return;
+            }
+            if (!elements.amountModal.classList.contains('hidden')) {
+                closeAmountModal();
+                return;
+            }
+            if (elements.mobileSearchModal && !elements.mobileSearchModal.classList.contains('hidden')) {
+                closeMobileSearchModal();
+                return;
+            }
+            if (!modalElements.modal.classList.contains('hidden')) {
+                toggleDatabaseModal(false);
+                return;
+            }
+            if (!elements.searchResults.classList.contains('hidden')) closeSearch('desktop');
+        });
+
+        elements.amountModalInput.addEventListener('input', (e) => {
+            renderQuickAmountButtons(parseFloat(e.target.value));
+        });
+
+        // --- INITIALISIERUNG ---
+        loadPersistedState();
+        updateUI();
+
+        const initialMode = isMockupPreview
+            ? 'mobile'
+            : (currentMode === 'desktop' || currentMode === 'mobile'
+                ? currentMode
+                : (window.innerWidth >= 1024 ? 'desktop' : 'mobile'));
+        setViewMode(initialMode);
+        closeSearch('desktop');
+        closeSearch('mobile');
+
+    </script>
+</body>
+</html>
